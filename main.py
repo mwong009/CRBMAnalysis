@@ -8,7 +8,7 @@ from collections import OrderedDict as odict
 
 net = 'net1', {
     'n_hidden': (16,),
-    'seed': 42,
+    'seed': 42
 }
 
 
@@ -25,6 +25,7 @@ class Network(object):
         self.input = []
         self.output = []
         self.model_params = odict()
+        self.model_values = {}
         self.hbias = []
         self.W_params = []
         self.vbias = []
@@ -38,6 +39,7 @@ class Network(object):
 
     def save_params(self):
         model_values = {}
+        # evaluating tensor shared variable to numpy array
         for param in self.model_params:
             model_values[param.name] = param.get_value()
 
@@ -49,7 +51,10 @@ class Network(object):
         if os.path.isfile(self.path+'.params'):
             with open(self.path, 'rb') as f:
                 model_values, hyperparameters, curves = pickle.load(f)
-            # update hyperparameters
+
+            self.model_values = model_values
+            self.monitoring_curves = curves
+            # update hyperparameters from loaded file
             for key, value in hyper.items():
                 hyperparameters[key] = value
 
@@ -80,9 +85,9 @@ class RBM(Network):
         self.model_params[name] : OrderedDict of `theano.shared()`\n
         """
         shp_hidden = self.hyperparameters['n_hidden']
-        if name in self.model_params.keys():
+        if name in self.model_values.keys():
             hbias = theano.shared(
-                value=self.model_params[name],
+                value=self.model_values[name],
                 name=name,
                 borrow=True
             )
@@ -120,9 +125,9 @@ class RBM(Network):
         tsr_variable = T.tensor3(name)  # input tensor as (rows, items, cats)
 
         # Create the tensor shared variables as (items, cats, hiddens)
-        if 'W_'+name in self.model_params.keys():
+        if 'W_'+name in self.model_values.keys():
             W = theano.shared(
-                value=self.model_params['W_'+name],
+                value=self.model_values['W_'+name],
                 name='W_'+name,
                 borrow=True
             )
@@ -136,9 +141,9 @@ class RBM(Network):
                 name='W_'+name,
                 borrow=True
             )
-        if 'vbias_'+name in self.model_params.keys():
+        if 'vbias_'+name in self.model_values.keys():
             vbias = theano.shared(
-                value=self.model_params['vbias_'+name],
+                value=self.model_values['vbias_'+name],
                 name='vbias_'+name,
                 borrow=True
             )
@@ -180,9 +185,9 @@ class RBM(Network):
         tsr_variable = T.matrix(name)  # output tensor as (rows, outs)
 
         # Create the tensor shared variables as (outs, hiddens)
-        if 'W_'+name in self.model_params.keys():
+        if 'W_'+name in self.model_values.keys():
             W = theano.shared(
-                value=self.model_params['W_'+name],
+                value=self.model_values['W_'+name],
                 name='W_'+name,
                 borrow=True
             )
@@ -196,9 +201,9 @@ class RBM(Network):
                 name='W_'+name,
                 borrow=True
             )
-        if 'cbias_'+name in self.model_params.keys():
+        if 'cbias_'+name in self.model_values.keys():
             cbias = theano.shared(
-                value=self.model_params['cbias_'+name],
+                value=self.model_values['cbias_'+name],
                 name='cbias_'+name,
                 borrow=True
             )
@@ -224,9 +229,9 @@ class RBM(Network):
             shp_visible = self.hyperparameters[name]
 
             # Create the tensor shared variables as (items, cats, outs)
-            if 'B_'+name in self.model_params.keys():
+            if 'B_'+name in self.model_values.keys():
                 B = theano.shared(
-                    value=self.model_params['B_'+name],
+                    value=self.model_values['B_'+name],
                     name='B_'+name,
                     borrow=True
                 )

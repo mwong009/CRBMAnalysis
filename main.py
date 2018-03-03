@@ -1,47 +1,92 @@
 import theano
+import pickle
+import sys
 import numpy as np
 import theano.tensor as T
 
+from collections import OrderedDict as odict
 
-class RBM(object):
-    ''' define the RBM toplevel '''
-    def __init__(self, seed, n_hidden):
-        self.seed = seed
+net = 'net1', {
+    'n_hidden': (16,),
+    'seed': 42
+}
+
+
+class Network(object):
+    def __init__(self, name, hyperparameters=odict()):
+
+        self.path = name
+        self.hyperparameters = hyperparameters
+
+        seed = hyperparameters['seed']
+        self.np_rng = np.random.RandomState(seed)
+        self.theano_rng = T.shared_randomstreams.RandomStreams(seed)
+
         self.input = []
         self.output = []
-        self.shp_visible = []
-        self.shp_output = []
-        self.model_params = []
+        self.model_params = odict()
         self.hbias = []
         self.W_params = []
         self.vbias = []
         self.B_params = []
         self.cbias = []
 
-        self.add_hbias((n_hidden,))
+        self.monitoring_curves = {
+            'CD error': [],
+            'log likelihood': []
+        }
 
-    def add_hbias(self, shp_hidden, name='hbias'):
+    def save_params(self):
+        model_values = {}
+        for param in self.model_params:
+            model_values[param.name] = param.get_value()
+
+        to_file = model_values, self.hyperparameters, self.monitoring_curves
+        with open(self.path+'.params', 'wb') as f:
+            pickle.dump(to_file, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def __load_params(self, hyper):
+        if os.path.isfile(self.path+'.params'):
+            with open(self.path, 'rb') as f:
+                model_values, hyperparameters, curves = pickle.load(f)
+            # update hyperparameters
+            for key, value in hyper.items():
+                hyperparameters[key] = value
+
+        else:
+            pass
+
+        return pass
+
+
+class RBM(Network):
+    ''' define the RBM toplevel '''
+    def __init__(self, name, hyperparameters=odict()):
+        Network.__init__(name, hyperparameters)
+        self.add_hbias()
+
+    def add_hbias(self, name='hbias'):
         """
         add_hbias func
 
         Parameters
         ----------
-        shp_hidden : sequence of `int`
-            Shape of hidden unit inputs e.g. `(2,)`.
-
         name: `str`, optional
             Name of hidden node e.g. `'hbias'`
 
         Updates
         -------
-        self.hbias[] : sequence of `theano.shared()`
-
-        self.shp_hidden : sequence of `int`
-
-        self.model_params[] : sequence of `theano.shared()`
-
+        self.hbias[] : sequence of `theano.shared()`\n
+        self.model_params[name] : OrderedDict of `theano.shared()`\n
         """
-        if len(self.hbias) == 0:
+        shp_hidden = self.hyperparameters['n_hidden']
+        if name in self.model_params.keys():
+            hbias = theano.shared(
+                value=self.model_params[name],
+                name=name,
+                borrow=True
+            )
+        else:
             hbias = theano.shared(
                 value=np.zeros(
                     shape=shp_hidden,
@@ -51,137 +96,153 @@ class RBM(object):
                 borrow=True
             )
 
-            self.hbias.append(hbias)
-            self.shp_hidden = shp_hidden
-            self.model_params.append(hbias)
+        self.hbias.append(hbias)
+        self.model_params[name] = hbias
 
-    def add_node(self, shp_visible, name='visible'):
+    def add_node(self, name='visible'):
         """
         add_node func
 
         Parameters
         ----------
-        shp_visible : sequence of `int`
-            Shape of visible unit inputs e.g. `(2, 1)` or `(2,)`.
-            Default use `(items, cats)` or `(1, cats)` or `(items, 1)`
-
         name : string, optional
             Name of visible node e.g. `'age'`
 
         Updates
         -------
-        self.input[] : sequence of `T.tensor3()`
-
-        self.shp_visible[] : sequence of `dict{}`
-
-        self.W_params[] : sequence of `theano.shared()`
-
-        self.vbias[] : sequence of `theano.shared()`
-
-        self.model_params[] : sequence of `theano.shared()`
-
+        self.input[] : sequence of `T.tensor3()`\n
+        self.W_params[] : sequence of `theano.shared()`\n
+        self.vbias[] : sequence of `theano.shared()`\n
+        self.model_params['x_'+name] : OrderedDict of `theano.shared()`\n
         """
-        shp_hidden = self.shp_hidden
+        shp_hidden = self.hyperparameters['n_hidden']
+        shp_visible = self.hyperparameters[name]
         tsr_variable = T.tensor3(name)  # input tensor as (rows, items, cats)
 
         # Create the tensor shared variables as (items, cats, hiddens)
-        W = theano.shared(
-            value=np.random.uniform(
-                low=-np.sqrt(6/np.sum(shp_visible+shp_hidden)),
-                high=np.sqrt(6/np.sum(shp_visible+shp_hidden)),
-                size=shp_visible+shp_hidden
-            ),
-            name=name,
-            borrow=True
-        )
-        vbias = theano.shared(
-            value=np.zeros(
-                shape=shp_visible,
-                dtype=theano.config.floatX
-            ),
-            name=name,
-            borrow=True
-        )
+        if 'W_'+name in self.model_params.keys():
+            W = theano.shared(
+                value=self.model_params['W_'+name],
+                name='W_'+name,
+                borrow=True
+            )
+        else:
+            W = theano.shared(
+                value=np.random.uniform(
+                    low=-np.sqrt(6./np.sum(shp_visible+shp_hidden)),
+                    high=np.sqrt(6./np.sum(shp_visible+shp_hidden)),
+                    size=shp_visible+shp_hidden
+                ),
+                name='W_'+name,
+                borrow=True
+            )
+        if 'vbias_'+name in self.model_params.keys():
+            vbias = theano.shared(
+                value=self.model_params['vbias_'+name],
+                name='vbias_'+name,
+                borrow=True
+            )
+        else:
+            vbias = theano.shared(
+                value=np.zeros(
+                    shape=shp_visible,
+                    dtype=theano.config.floatX
+                ),
+                name='vbias_'+name,
+                borrow=True
+            )
 
         self.input.append(tsr_variable)
-        self.shp_visible.append({'name': name, 'shape': shp_visible})
         self.W_params.append(W)
         self.vbias.append(vbias)
-        self.model_params.extend([W, vbias])
+        self.model_params['W_'+name] = W
+        self.model_params['vbias_'+name] = vbias
 
-    def add_connection_to(self, shp_output, name='output'):
+    def add_connection_to(self, name='output'):
         """
         add_connection_to func
 
         Parameters
         ----------
-        shp_output : sequence of `int`
-            Shape of visible unit outputs e.g. `(2,)`. Default use `(cats,)`
-
         name : string, optional
             Name of visible node e.g. `'mode_prime'`
 
         Updates
         -------
-        self.output[] : sequence of `T.matrix()`
-
-        self.shp_output[] : sequence of `dict{}`
-
-        self.W_params[] : sequence of `theano.shared()`
-
-        self.cbias[] : sequence of `theano.shared()`
-
-        self.B_params[] : sequence of `theano.shared()`
-
-        self.model_params[] : sequence of `theano.shared()`
-
+        self.output[] : sequence of `T.matrix()`\n
+        self.W_params[] : sequence of `theano.shared()`\n
+        self.cbias[] : sequence of `theano.shared()`\n
+        self.B_params[] : sequence of `theano.shared()`\n
+        self.model_params[] : sequence of `theano.shared()`\n
         """
-        shp_hidden = self.shp_hidden
+        shp_hidden = self.hyperparameters['n_hidden']
+        shp_output = self.hyperparameters[name]
         tsr_variable = T.matrix(name)  # output tensor as (rows, outs)
 
         # Create the tensor shared variables as (outs, hiddens)
-        W = theano.shared(
-            value=np.random.uniform(
-                low=-np.sqrt(6/np.sum(shp_output+shp_hidden)),
-                high=np.sqrt(6/np.sum(shp_output+shp_hidden)),
-                size=shp_output+shp_hidden
-            ),
-            name=name,
-            borrow=True
-        )
-        cbias = theano.shared(
-            value=np.zeros(
-                shape=shp_output,
-                dtype=theano.config.floatX
-            ),
-            name=name,
-            borrow=True
-        )
-
-        self.output.append(tsr_variable)
-        self.shp_output.append({'name': name, 'shape': shp_output})
-        self.W_params.append(W)
-        self.cbias.append(cbias)
-        self.model_params.extend([W, cbias])
-
-        # condtional RBM connection (B weights)
-        for dict_item in self.shp_visible:
-            name = dict_item['name']
-            shp_visible = dict_item['shape']
-
-            # Create the tensor shared variables as (items, cats, outs)
-            B = theano.shared(
+        if 'W_'+name in self.model_params.keys():
+            W = theano.shared(
+                value=self.model_params['W_'+name],
+                name='W_'+name,
+                borrow=True
+            )
+        else:
+            W = theano.shared(
                 value=np.random.uniform(
-                    low=-np.sqrt(6/np.sum(shp_visible+shp_output)),
-                    high=np.sqrt(6/np.sum(shp_visible+shp_output)),
-                    size=shp_visible+shp_output
+                    low=-np.sqrt(6./np.sum(shp_output+shp_hidden)),
+                    high=np.sqrt(6./np.sum(shp_output+shp_hidden)),
+                    size=shp_output+shp_hidden
                 ),
-                name=name,
+                name='W_'+name,
+                borrow=True
+            )
+        if 'cbias_'+name in self.model_params.keys():
+            cbias = theano.shared(
+                value=self.model_params['cbias_'+name],
+                name='cbias_'+name,
+                borrow=True
+            )
+        else:
+            cbias = theano.shared(
+                value=np.zeros(
+                    shape=shp_output,
+                    dtype=theano.config.floatX
+                ),
+                name='cbias_'+name,
                 borrow=True
             )
 
+        self.output.append(tsr_variable)
+        self.W_params.append(W)
+        self.cbias.append(cbias)
+        self.model_params['W_'+name] = W
+        self.model_params['cbias_'+name] = cbias
+
+        # condtional RBM connection (B weights)
+        for node in self.input:
+            name = node.name
+            shp_visible = self.hyperparameters[name]
+
+            # Create the tensor shared variables as (items, cats, outs)
+            if 'B_'+name in self.model_params.keys():
+                B = theano.shared(
+                    value=self.model_params['B_'+name],
+                    name='B_'+name,
+                    borrow=True
+                )
+            else:
+                B = theano.shared(
+                    value=np.random.uniform(
+                        low=-np.sqrt(6/np.sum(shp_visible+shp_output)),
+                        high=np.sqrt(6/np.sum(shp_visible+shp_output)),
+                        size=shp_visible+shp_output
+                    ),
+                    name='B_'+name,
+                    borrow=True
+                )
+
             self.B_params.append(B)
-            self.model_params.append(B)
+            self.model_params['B_'+name] = B
 
     def free_energy(self):
         """
@@ -206,9 +267,9 @@ class RBM(object):
         `  F(y,x) = -{vbias*x + cbias*y + sum_k[ln(1+exp(wx_b))]}`
 
         """
+        visibles = self.input + self.output
         hbias = self.hbias[0]
         vbiases = self.vbias + self.cbias
-        visibles = self.input + self.output
         W_params = self.W_params
 
         # input shapes as (rows, items, cats)
@@ -298,9 +359,8 @@ class RBM(object):
         return energy
 
 
-def main():
-    rbm = RBM(111, 16)
-
+def main(rbm):
+    pass
 
 if __name__ == '__main__':
-    main()
+    main(RBM(*net))

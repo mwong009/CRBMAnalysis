@@ -8,7 +8,8 @@ from collections import OrderedDict as odict
 
 net = 'net1', {
     'n_hidden': (16,),
-    'seed': 42
+    'seed': 42,
+    'batch_size': 32
 }
 
 
@@ -37,6 +38,8 @@ class Network(object):
             'log likelihood': []
         }
 
+        __load_params()
+
     def save_params(self):
         model_values = {}
         # evaluating tensor shared variable to numpy array
@@ -47,16 +50,16 @@ class Network(object):
         with open(self.path+'.params', 'wb') as f:
             pickle.dump(to_file, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def __load_params(self, hyper):
+    def __load_params(self):
         if os.path.isfile(self.path+'.params'):
             with open(self.path, 'rb') as f:
-                model_values, hyperparameters, curves = pickle.load(f)
+                model_values, hyper, curves = pickle.load(f)
 
             self.model_values = model_values
             self.monitoring_curves = curves
-            # update hyperparameters from loaded file
+            # update hyperparameters from init
             for key, value in hyper.items():
-                hyperparameters[key] = value
+                self.hyperparameters[key] = value
 
         else:
             pass

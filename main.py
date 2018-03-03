@@ -8,7 +8,7 @@ from collections import OrderedDict as odict
 
 net = 'net1', {
     'n_hidden': (16,),
-    'seed': 42
+    'seed': 42,
 }
 
 

@@ -145,6 +145,10 @@ class RBM(Network):
         self.vbias[] : sequence of `theano.shared()`\n
         self.model_params['x_'+name] : OrderedDict of `theano.shared()`\n
         """
+        if type not in self.hyperparameters['variable_types']:
+            print('variable type \'%s\' not implemented!' % type)
+            raise NotImplementedError
+
         shp_hidden = self.hyperparameters['n_hidden']
         shp_visible = self.hyperparameters[name]
         tsr_variable = T.tensor3(name)  # input tensor as (rows, items, cats)
@@ -182,7 +186,7 @@ class RBM(Network):
                 borrow=True
             )
 
-        self.input.append(tsr_variable)
+        self.input.append([tsr_variable, type])
         self.W_params.append(W)
         self.vbias.append(vbias)
         self.model_params['W_'+name] = W
@@ -194,17 +198,24 @@ class RBM(Network):
 
         Parameters
         ----------
+        type : `str`
+            Type of variables e.g. `'binary'`, `'category'`,
+            see hyperparameters for more information
         name : string, optional
             Name of visible node e.g. `'mode_prime'`
 
         Updates
         -------
-        self.output[] : sequence of `T.matrix()`\n
+        self.output[] : sequence of `[T.matrix(), str]`\n
         self.W_params[] : sequence of `theano.shared()`\n
         self.cbias[] : sequence of `theano.shared()`\n
         self.B_params[] : sequence of `theano.shared()`\n
         self.model_params[] : sequence of `theano.shared()`\n
         """
+        if type not in self.hyperparameters['variable_types']:
+            print('variable type \'%s\' not implemented!' % type)
+            raise NotImplementedError
+
         shp_hidden = self.hyperparameters['n_hidden']
         shp_output = self.hyperparameters[name]
         tsr_variable = T.matrix(name)  # output tensor as (rows, outs)
@@ -242,14 +253,14 @@ class RBM(Network):
                 borrow=True
             )
 
-        self.output.append(tsr_variable)
+        self.output.append([tsr_variable, type])
         self.W_params.append(W)
         self.cbias.append(cbias)
         self.model_params['W_'+name] = W
         self.model_params['cbias_'+name] = cbias
 
         # condtional RBM connection (B weights)
-        for node in self.input:
+        for node in [v[0] for v in self.input]:
             name = node.name
             shp_visible = self.hyperparameters[name]
 

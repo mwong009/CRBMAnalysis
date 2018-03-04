@@ -17,60 +17,78 @@ class Network(object):
     def __init__(self, name, hyperparameters=odict()):
 
         self.path = name
-        self.hyperparameters = hyperparameters
 
         seed = hyperparameters['seed']
         self.np_rng = np.random.RandomState(seed)
         self.theano_rng = T.shared_randomstreams.RandomStreams(seed)
 
-        self.input = []
-        self.output = []
+        model_values, hyper, curves = __load_params(name, hyperparameters)
+        self.model_values = model_values
+        self.hyperparameters = hyper
+        self.monitoring_curves = curves
         self.model_params = odict()
-        self.model_values = {}
-        self.hbias = []
-        self.W_params = []
-        self.vbias = []
-        self.B_params = []
-        self.cbias = []
-
-        self.monitoring_curves = {
-            'CD error': [],
-            'log likelihood': []
-        }
-
-        __load_params()
 
     def save_params(self):
+
+        path = self.path+'.params'
+        hyper = self.hyperparameters
+        curves = self.monitoring_curves
         model_values = {}
         # evaluating tensor shared variable to numpy array
         for param in self.model_params:
             model_values[param.name] = param.get_value()
 
-        to_file = model_values, self.hyperparameters, self.monitoring_curves
-        with open(self.path+'.params', 'wb') as f:
+        to_file = model_values, hyper, curves
+        with open(path, 'wb') as f:
             pickle.dump(to_file, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def __load_params(self):
-        if os.path.isfile(self.path+'.params'):
-            with open(self.path, 'rb') as f:
+    def __load_params(self, name, hyperparameters):
+        """
+        __load_params() func
+
+        Parameters
+        ----------
+        name: `str`
+            Name of the hyperparmeter\n
+        hyperparameters : `dict{}`
+            dictionary of the hyperparameters\n
+
+        Returns
+        -------
+        model_values : `{key: value}` pair of saved parameter values`\n
+        hyperparameters : Updated list of hyperparameters`\n
+        curves: monitoring curves\n
+        """
+        path = name+'.params'
+        if os.path.isfile(path):
+            with open(path, 'rb') as f:
                 model_values, hyper, curves = pickle.load(f)
 
-            self.model_values = model_values
-            self.monitoring_curves = curves
             # update hyperparameters from init
             for key, value in hyper.items():
-                self.hyperparameters[key] = value
+                hyperparameters[key] = value
 
         else:
-            pass
+            model_values = {}
+            curves = {
+                'CD error': [],
+                'log likelihood': []
+            }
 
-        return pass
+        return model_values, hyperparameters, curves
 
 
 class RBM(Network):
     ''' define the RBM toplevel '''
     def __init__(self, name, hyperparameters=odict()):
         Network.__init__(name, hyperparameters)
+        self.input = []
+        self.output = []
+        self.hbias = []
+        self.W_params = []
+        self.vbias = []
+        self.B_params = []
+        self.cbias = []
         self.add_hbias()
 
     def add_hbias(self, name='hbias'):

@@ -9,7 +9,8 @@ from collections import OrderedDict as odict
 net = 'net1', {
     'n_hidden': (16,),
     'seed': 42,
-    'batch_size': 32
+    'batch_size': 32,
+    'variable_types': ['binary', 'integer', 'real', 'category']
 }
 
 
@@ -125,18 +126,21 @@ class RBM(Network):
         self.hbias.append(hbias)
         self.model_params[name] = hbias
 
-    def add_node(self, name='visible'):
+    def add_node(self, type, name='visible'):
         """
         add_node func
 
         Parameters
         ----------
-        name : string, optional
+        type : `str`
+            Type of variables e.g. `'binary'`, `'category'`,
+            see hyperparameters for more information
+        name : `str`, optional
             Name of visible node e.g. `'age'`
 
         Updates
         -------
-        self.input[] : sequence of `T.tensor3()`\n
+        self.input[] : sequence of `[T.tensor3(), str]`\n
         self.W_params[] : sequence of `theano.shared()`\n
         self.vbias[] : sequence of `theano.shared()`\n
         self.model_params['x_'+name] : OrderedDict of `theano.shared()`\n
@@ -184,7 +188,7 @@ class RBM(Network):
         self.model_params['W_'+name] = W
         self.model_params['vbias_'+name] = vbias
 
-    def add_connection_to(self, name='output'):
+    def add_connection_to(self, type, name='output'):
         """
         add_connection_to func
 
@@ -293,7 +297,7 @@ class RBM(Network):
         `  F(y,x) = -{vbias*x + cbias*y + sum_k[ln(1+exp(wx_b))]}`
 
         """
-        visibles = self.input + self.output
+        visibles = [x[0] for x in self.input] + [y[0] for y in self.output]
         hbias = self.hbias[0]
         vbiases = self.vbias + self.cbias
         W_params = self.W_params
@@ -342,7 +346,7 @@ class RBM(Network):
         :params: used are W^1, W^2, B, c, h, v biases
 
         """
-        visibles = self.input
+        visibles = [v[0] for v in self.input]
         hbias = self.hbias[0]
         vbiases = self.vbias
         cbiases = self.cbias

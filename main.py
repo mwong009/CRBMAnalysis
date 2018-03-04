@@ -399,6 +399,77 @@ class RBM(Network):
 
         return energy
 
+    def sample_h_given_v(self, v0_samples):
+        """
+        sample_h_given_v func\n
+            Binomial hidden units
+        """
+        # prop up
+        v0 = [v[0] for v in v0_samples]
+        W_params = self.params
+        hbias = self.hbias
+        h1_preactivation = self.propup(v0, W_params, hbias)
+
+        # h ~ p(h|v0_sample)
+        h1_means = T.nnet.sigmoid(h1_preactivation)
+        h1_samples = self.theano_rng.binomial(
+            size=h1_means.shape,
+            p=h1_means,
+            dtype=theano.config.floatX
+        )
+
+        return h1_preactivation, h1_means, h1_samples
+
+    def propup(self, samples, weights, bias):
+
+        preactivation = bias[0]
+        # (rows, items, cats), (items, cats, hiddens)
+        # (rows, outs), (outs, hiddens)
+        for v, W in zip(samples, weights):
+            if W.ndim == 2:
+                preactivation += T.dot(v, W)
+            else:
+                preactivation += T.tensordot(v, W, axes=[[1, 2], [0, 1]])
+
+        return preactivation
+
+    def sample_v_given_h(self, h0_samples):
+
+        # prop down
+        W_params = self.W_params
+        vbias = self.vbias + self.cbias
+        v1_preactivation = propdown(h0_samples, W_params, vbias)
+
+        # v ~ p(v|h0_sample)
+        v1_means = []
+        v1_samples = []
+        types = [x[1] for x in self.input] + [y[1] for y in self.output]
+        for v1, type in zip(v1_preactivation, types):
+            if type is 'binary':
+                v1_mean = T.nnet.sigmoid(v1)
+                v1_sample = self.theano_rng.binomial(
+                    size=v1.shape,
+                    p=v1_mean,
+                    dtype=theano.config.floatX
+                )
+            elif type is 'category':
+                v1_mean = v1
+                v1_sample = self.theano_rng.uniform()
+
+    def propdown(self, h, weights, bias):
+
+        preactivation = []
+        # (rows, hiddens), (items, cats, hiddens) --> dimshuffle(0, 2, 1)
+        # (rows, hiddens), (outs, hiddens) --> dimshuffle(1, 0)
+        for W, b in zip(weights, bias):
+            if W.ndim == 2:
+                W = W.dimshuffle(1, 0)
+            else:
+                W = W.dimshuffle(0, 2, 1)
+            preactivation.append(T.dot(h, W))
+
+        return preactivation
+
 
 def main(rbm):
     pass

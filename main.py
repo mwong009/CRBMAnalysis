@@ -126,7 +126,7 @@ class RBM(Network):
         self.hbias.append(hbias)
         self.model_params[name] = hbias
 
-    def add_node(self, type, name='visible'):
+    def add_node(self, t, name='visible'):
         """
         add_node func
 
@@ -145,8 +145,8 @@ class RBM(Network):
         self.vbias[] : sequence of `theano.shared()`\n
         self.model_params['x_'+name] : OrderedDict of `theano.shared()`\n
         """
-        if type not in self.hyperparameters['variable_types']:
-            print('variable type \'%s\' not implemented!' % type)
+        if t not in self.hyperparameters['variable_types']:
+            print('variable type \'%s\' not implemented!' % t)
             raise NotImplementedError
 
         shp_hidden = self.hyperparameters['n_hidden']
@@ -186,13 +186,13 @@ class RBM(Network):
                 borrow=True
             )
 
-        self.input.append([tsr_variable, type])
+        self.input.append([tsr_variable, t])
         self.W_params.append(W)
         self.vbias.append(vbias)
         self.model_params['W_'+name] = W
         self.model_params['vbias_'+name] = vbias
 
-    def add_connection_to(self, type, name='output'):
+    def add_connection_to(self, t, name='output'):
         """
         add_connection_to func
 
@@ -212,8 +212,8 @@ class RBM(Network):
         self.B_params[] : sequence of `theano.shared()`\n
         self.model_params[] : sequence of `theano.shared()`\n
         """
-        if type not in self.hyperparameters['variable_types']:
-            print('variable type \'%s\' not implemented!' % type)
+        if t not in self.hyperparameters['variable_types']:
+            print('variable type \'%s\' not implemented!' % t)
             raise NotImplementedError
 
         shp_hidden = self.hyperparameters['n_hidden']
@@ -253,7 +253,7 @@ class RBM(Network):
                 borrow=True
             )
 
-        self.output.append([tsr_variable, type])
+        self.output.append([tsr_variable, t])
         self.W_params.append(W)
         self.cbias.append(cbias)
         self.model_params['W_'+name] = W
@@ -319,8 +319,8 @@ class RBM(Network):
         # bias shapes as (items, cats) or (outs,)
         wx_b = hbias  # (hiddens,) broadcast(T,F) --> (rows, hiddens)
         utility = 0  # (rows,)
-        for type, v, W, vbias in zip(types, visibles, W_params, vbiases):
-            if type is 'real':
+        for t, v, W, vbias in zip(types, visibles, W_params, vbiases):
+            if t is 'real':
                 vbias = vbias.dimshuffle('x', 0, 1)
                 utility += T.sqr(v - vbias)/2.
             else:
@@ -376,8 +376,8 @@ class RBM(Network):
         utility = []
 
         # loop over all input nodes
-        for x, W, B, v, type in zip(visibles, xWh_params, B_params, vbiases,
-                                    types):
+        for x, W, B, v, t in zip(visibles, xWh_params, B_params, vbiases,
+                                 types):
 
             # loop over all output nodes
             for i, (hWy, cbias) in enumurate(zip(hWy_params, cbiases)):
@@ -388,7 +388,7 @@ class RBM(Network):
                 else:
                     utility[i] += T.tensordot(x, B, axes=[[1, 2], [0, 1]])
 
-            if type is 'real':
+            if t is 'real':
                 v = v.dimshuffle('x', 0, 1)
                 wx = T.sqr(x - v)/2.  # (rows, items, cats)
             else:
@@ -437,7 +437,7 @@ class RBM(Network):
         preactivation = bias[0]
         # (rows, items, cats), (items, cats, hiddens)
         # (rows, outs), (outs, hiddens)
-        for v, W in zip(samples, weights):
+        for v, W, t in zip(samples, weights):
             if W.ndim == 2:
                 preactivation += T.dot(v, W)
             else:
@@ -456,35 +456,53 @@ class RBM(Network):
         v1_means = []
         v1_samples = []
         types = [x[1] for x in self.input] + [y[1] for y in self.output]
-        for v1, type in zip(v1_preactivation, types):
-            if type is 'binary':
+        for v1, t in zip(v1_preactivation, types):
+            if t is 'binary':
                 v1_mean = T.nnet.sigmoid(v1)
                 v1_sample = self.theano_rng.binomial(
                     size=v1.shape,
                     p=v1_mean,
                     dtype=theano.config.floatX
                 )
-            elif type is 'category':
-                v1_mean = v1
-                v1_sample = -T.log(-T.log(self.theano_rng.uniform(
-                    size=v1_mean.shape,
+            elif t is 'category':
+                tau = 1.  # softmax temperature value \tau (default=1)
+                gumbel_error = -T.log(-T.log(self.theano_rng.uniform(
+                    size=v1.shape,
                     dtype=theano.config.floatX
                 )))
-            elif type is 'real':
+                # reshape softmax tensors to 2D matrix
+                if v1.ndim == 3:
+                    (d1, d2, d3) = v1.shape
+                    logit = (v1 + gumbel_error).reshape((d1 * d2, d3))
+                    v1_mean = T.nnet.softmax(logit/tau)
+                    # reshape back into original dimensions
+                    v1_mean = v1_mean.reshape((d1, d2, d3))
+                else:
+                    logit = (v1 + gumbel_error)
+                    v1_mean = T.nnet.softmax(logit/tau)  # (rows, items, cats)
+                v1_sample = v1_mean
+            elif t is 'real':
                 v1_mean = v1
-                v1_sample = T.nnet.relu(
-                    self.theano_rng.normal(
-                        size=v1_mean.shape,
-                        avg=v1_mean,
-                        dtype=theano.config.floatX
-                    )
+                v1_sample = self.theano_rng.normal(
+                    size=v1_mean.shape,
+                    avg=v1_mean,
+                    dtype=theano.config.floatX
+                )  # (rows, items, cats)
+            elif t is 'integer':
+                N = 200
+                offset = -np.arange(1, 200) + 0.5
+                v1 = T.shape_padright(v1) + offset  # (rows, items, cats, Ns)
+                v1_mean = T.nnet.sigmoid(v1)
+                v1_sample = self.theano_rng.binomial(
+                    size=v1.shape,
+                    p=v1_mean,
+                    dtype=theano.config.floatX
                 )
-            elif type is 'integer':
-                pass
+                v1_sample = T.sum(v1_sample, axis=-1)  # (rows, items, cats)
             else:
                 raise NotImplementedError
 
-    def propdown(self, h, weights, bias):
+    def propdown(self, samples, weights, bias):
 
         preactivation = []
         # (rows, hiddens), (items, cats, hiddens) --> dimshuffle(0, 2, 1)
@@ -494,7 +512,7 @@ class RBM(Network):
                 W = W.dimshuffle(1, 0)
             else:
                 W = W.dimshuffle(0, 2, 1)
-            preactivation.append(T.dot(h, W))
+            preactivation.append(T.dot(samples, W) + bias)
 
         return preactivation
 

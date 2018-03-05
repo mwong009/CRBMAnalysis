@@ -309,21 +309,26 @@ class RBM(Network):
 
         """
         visibles = [x[0] for x in self.input] + [y[0] for y in self.output]
+        types = [x[1] for x in self.input] + [y[1] for y in self.output]
         hbias = self.hbias[0]
         vbiases = self.vbias + self.cbias
         W_params = self.W_params
 
-        # input shapes as (rows, items, cats)
-        # output shapes as (rows, outs)
-        # weight shapes as (items, cats, hiddens), (outs, hiddens)
+        # input shapes as (rows, items, cats) or (rows, outs)
+        # weight shapes as (items, cats, hiddens) or (outs, hiddens)
+        # bias shapes as (items, cats) or (outs,)
         wx_b = hbias  # (hiddens,) broadcast(T,F) --> (rows, hiddens)
         utility = 0  # (rows,)
-        for visible, W_param, vbias in zip(visibles, W_params, vbiases):
-            utility += T.tensordot(visible, vbias, axes=[[1, 2], [0, 1]])
-            if W_param.ndim == 2:
-                wx_b += T.dot(visible, W_param)
+        for type, v, W, vbias in zip(types, visibles, W_params, vbiases):
+            if type is 'real':
+                vbias = vbias.dimshuffle('x', 0, 1)
+                utility += T.sqr(v - vbias)/2.
             else:
-                wx_b += T.tensordot(visible, W_param, axes=[[1, 2], [0, 1]])
+                utility += T.tensordot(v, vbias, axes=[[1, 2], [0, 1]])
+            if W.ndim == 2:
+                wx_b += T.dot(v, W)
+            else:
+                wx_b += T.tensordot(v, W, axes=[[1, 2], [0, 1]])
 
         # utility --> (rows,)
         # ...axis=1) sums over hidden axis --> (rows,)
@@ -351,13 +356,14 @@ class RBM(Network):
 
         :math:\n
         `F(y,x,h) = -(xWh + yWh + vbias*x + hbias*h + cbias*y)`\n
-        `    wx_b = xW + W_j + hbias`\n
+        `    wx_b = \sum_{i}vbias*x + xW_{ik} + W_j + hbias`\n
         `F(y|x,h) = -{cbias + Bx + sum_k[ln(1+(exp(wx_b))]}`
 
         :params: used are W^1, W^2, B, c, h, v biases
 
         """
         visibles = [v[0] for v in self.input]
+        types = [x[1] for x in self.input]
         hbias = self.hbias[0]
         vbiases = self.vbias
         cbiases = self.cbias
@@ -370,23 +376,29 @@ class RBM(Network):
         utility = []
 
         # loop over all input nodes
-        for visible, W_param, B_param in zip(visibles, xWh_params, B_params):
+        for x, W, B, v, type in zip(visibles, xWh_params, B_params, vbiases,
+                                    types):
 
             # loop over all output nodes
-            for i, (hWy_param, cbias) in enumurate(zip(hWy_params, cbiases)):
+            for i, (hWy, cbias) in enumurate(zip(hWy_params, cbiases)):
                 utility.append(cbias)  # (outs,) --> ('x', outs)
-                wx_b += hWy_param.dimshuffle('x', 1, 0)
+                wx_b += hWy.dimshuffle('x', 1, 0)  # (rows, hiddens, outs)
                 if B_param.ndim == 2:
-                    utility[i] += T.dot(visible, B_param)  # (rows, outs)
+                    utility[i] += T.dot(x, B)  # (rows, outs)
                 else:
-                    utility[i] += T.tensordot(visible, B_param,
-                                              axes=[[1, 2], [0, 1]])
+                    utility[i] += T.tensordot(x, B, axes=[[1, 2], [0, 1]])
+
+            if type is 'real':
+                v = v.dimshuffle('x', 0, 1)
+                wx = T.sqr(x - v)/2.  # (rows, items, cats)
+            else:
+                wx = x * v.dimshuffle('x', 0, 1)  # (rows, items, cats)
 
             if W_param.ndim == 2:
-                wx = T.dot(visible, W_param)
+                wx = T.dot(wx, W)  # (rows, hiddens)
                 wx_b += wx.dimshuffle(0, 1, 'x')  # (rows, hiddens, 'x')
             else:
-                wx = T.tensordot(visible, W_param, axes=[[1, 2], [0, 1]])
+                wx = T.tensordot(wx, W, axes=[[1, 2], [0, 1]])
                 wx_b += wx.dimshuffle(0, 1, 'x')  # (rows, hiddens, 'x')
 
         # sum over hiddens axis (rows, hiddens, 'x') --> (rows, 'x')
@@ -454,7 +466,23 @@ class RBM(Network):
                 )
             elif type is 'category':
                 v1_mean = v1
-                v1_sample = self.theano_rng.uniform()
+                v1_sample = -T.log(-T.log(self.theano_rng.uniform(
+                    size=v1_mean.shape,
+                    dtype=theano.config.floatX
+                )))
+            elif type is 'real':
+                v1_mean = v1
+                v1_sample = T.nnet.relu(
+                    self.theano_rng.normal(
+                        size=v1_mean.shape,
+                        avg=v1_mean,
+                        dtype=theano.config.floatX
+                    )
+                )
+            elif type is 'integer':
+                pass
+            else:
+                raise NotImplementedError
 
     def propdown(self, h, weights, bias):
 

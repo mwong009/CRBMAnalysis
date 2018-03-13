@@ -1,8 +1,10 @@
 import theano
 import pickle
 import sys
+import os
 import numpy as np
 import theano.tensor as T
+import optimizers as opt
 
 from collections import OrderedDict as odict
 from itertools import chain
@@ -27,7 +29,7 @@ class Network(object):
         self.np_rng = np.random.RandomState(seed)
         self.theano_rng = T.shared_randomstreams.RandomStreams(seed)
 
-        model_values, hyper, curves = __load_params(name, hyperparameters)
+        model_values, hyper, curves = self.load_params(name, hyperparameters)
         self.model_values = model_values
         self.hyperparameters = hyper
         self.monitoring_curves = curves
@@ -40,16 +42,16 @@ class Network(object):
         curves = self.monitoring_curves
         model_values = {}
         # evaluating tensor shared variable to numpy array
-        for param in self.model_params:
-            model_values[param.name] = param.get_value()
+        for param_name, param in self.model_params:
+            model_values[param_name] = param.eval()
 
         to_file = model_values, hyper, curves
         with open(path, 'wb') as f:
             pickle.dump(to_file, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def __load_params(self, name, hyperparameters):
+    def load_params(self, name, hyperparameters):
         """
-        __load_params() func
+        load_params func
 
         Parameters
         ----------
@@ -64,7 +66,7 @@ class Network(object):
         hyperparameters : Updated list of hyperparameters`\n
         curves: monitoring curves\n
         """
-        path = name+'.params'
+        path = name + '.params'
         if os.path.isfile(path):
             with open(path, 'rb') as f:
                 model_values, hyper, curves = pickle.load(f)
@@ -86,7 +88,7 @@ class Network(object):
 class RBM(Network):
     ''' define the RBM toplevel '''
     def __init__(self, name, hyperparameters=odict()):
-        Network.__init__(name, hyperparameters)
+        Network.__init__(self, name, hyperparameters)
         self.input = []         # list of tensors
         self.input_type = []    # list of str types
         self.output = []        # list of tensors
@@ -150,14 +152,14 @@ class RBM(Network):
         Parameters
         ----------
         var_type : `str`
-            Type of variables e.g. `'binary'`, `'category'`,
+            Type of variables e.g. 'binary', 'category',
             see hyperparameters for more information
         name : `str`, optional
-            Name of visible node e.g. `'age'`
+            Name of visible node e.g. 'age'
 
         Updates
         -------
-        self.input[] : sequence of `[T.tensor3(), str]`\n
+        self.input[] : sequence of `T.tensor3()`\n
         self.input_type[] : sequence of `str`\n
         self.W_params[] : sequence of `theano.shared()`\n
         self.vbias[] : sequence of `theano.shared()`\n
@@ -302,20 +304,20 @@ class RBM(Network):
         self.W_params_flat.append(W_flat)
         self.U_params_flat.append(W_flat)
         self.cbias_flat.append(cbias_flat)
-        self.model_params['W_'+name] = W
-        self.model_params['cbias_'+name] = cbias
+        self.model_params['W_'+name] = W_flat
+        self.model_params['cbias_'+name] = cbias_flat
 
         # condtional RBM connection (B weights)
-        for node in [v[0] for v in self.input]:
-            name = node.name
-            shp_visible = self.hyperparameters[name]
+        for node in self.input:
+            var_name = node.name
+            shp_visible = self.hyperparameters[var_name]
 
             # Create the tensor shared variables as (items, cats, outs)
-            if 'B_'+name in self.model_values.keys():
+            if 'B_'+var_name in self.model_values.keys():
                 size = shp_visible+shp_output
                 B_flat = theano.shared(
-                    value=self.model_values['B_'+name],
-                    name='B_'+name,
+                    value=self.model_values['B_'+var_name],
+                    name='B_'+var_name,
                     borrow=True
                 )
                 B = B_flat.reshape(size)
@@ -326,14 +328,14 @@ class RBM(Network):
                         high=np.sqrt(6/np.sum(size)),
                         size=np.prod(size)
                     ),
-                    name='B_'+name,
+                    name='B_'+var_name+'_'+name,
                     borrow=True
                 )
                 B = B_flat.reshape(size)
 
             self.B_params.append(B)
             self.B_params_flat.append(B_flat)
-            self.model_params['B_'+name] = B
+            self.model_params['B_'+var_name+'_'+name] = B_flat
 
     def free_energy(self, input=None):
         """
@@ -555,7 +557,7 @@ class RBM(Network):
 
     def sample_v_given_h(self, h0_samples):
         """
-        sample_v_given_h func\n
+        sample_v_given_h func
             Binomial hidden units
 
         Parameters
@@ -566,11 +568,11 @@ class RBM(Network):
         Returns
         -------
         v1_preactivation : `[scalar]` (-inf, inf)
-            sequence of preactivation function e.g. logit utility func\n
+            sequence of preactivation function e.g. logit utility func
         v1_means : `[scalar]` (0, 1)
-            sequence of sigmoid activation\n
+            sequence of sigmoid activation
         v1_samples : `[binary]` or `[integer]` or `[float32]` or `[array[j]]`
-            visible unit samples\n
+            visible unit samples
         """
         # prop down
         W_params = self.W_params
@@ -682,26 +684,34 @@ class RBM(Network):
             + v1_pre + v1_means + v1_samples
         return gibbs_scan_list
 
-    def get_discriminative_cost_updates(self, learning_rate=1e-3):
+    def get_discriminative_cost_updates(self, lr=1e-3):
 
         # prepare visible samples from x input
         v0_samples = self.input
         labels = self.output_labels
+        types = self.output_type
 
         logits = self.discriminative_free_energy()
-        # s is to scale the learning rate to the number of output nodes
-        s = len(logits)
         cost = []
-        updates = []
-        for i, (logit, label) in enumerate(zip(logits, labels)):
-            p_y_given_x = T.nnet.softmax(-logit)
-            cost.append(self.get_loglikelihood(p_y_given_x, label))
+        updates = odict()
+        for i, (logit, label, t) in enumerate(zip(logits, labels, types)):
+            if t is 'real':
+                mse = T.mean((-logit-label)**2, axis=0)
+                cost.append(mse)
+            else:
+                p_y_given_x = T.nnet.softmax(-logit)
+                cost.append(self.get_loglikelihood(p_y_given_x, label))
             # calculate the gradients
             params = self.V_params + self.hbias + self.vbias \
                 + self.U_params[i] + self.cbias[i] + self.B_params[i]
             grads = T.grad(cost=cost[i], wrt=params)
             # a list of update expressions (variable, update expression)
-            updates.extend(sgd_updates(params, grads, learning_rate/s))
+            update = opt.adam_updates(params, grads, lr, amsgrad=True)
+            for var, expr in update:
+                if var in updates:
+                    updates[var] = (expr + updates[var]) / (i + 1.)
+                else:
+                    updates[var] = expr
 
         return cost, updates
 
@@ -722,7 +732,7 @@ class RBM(Network):
 
         return preds
 
-    def get_generative_cost_updates(self, k=1, learning_rate=1e-3):
+    def get_generative_cost_updates(self, k=1, lr=1e-3):
         """
         get_generative_cost_updates func
             updates weights for W^(1), W^(2), a, c and d
@@ -772,7 +782,7 @@ class RBM(Network):
             consider_constant=gibbs_samples
         )
 
-        updates = sgd_updates(params, grads, learning_rate)
+        updates = opt.adam_updates(params, grads, lr, amsgrad=True)
 
         # update Gibbs chain with update expressions
         for variable, expression in updates:
@@ -854,10 +864,9 @@ class RBM(Network):
             outputs=d_cost,
             updates=d_updates,
             givens={
-                x: visible[index*batch_size:(index+1)*batch_size]
-                for x, visible in zip(d_inputs, d_data_inputs),
-                y: label[index*batch_size:(index+1)*batch_size]
-                for y, label in zip(d_inputs, d_out_labels)
+                tsr: data[index*batch_size:(index+1)*batch_size]
+                for tsr, data in zip(d_inputs + d_labels,
+                                     d_data_inputs + d_out_labels)
             },
             name='discriminate',
             allow_input_downcast=True,
@@ -869,10 +878,9 @@ class RBM(Network):
             outputs=preds,
             updates=None,
             givens={
-                x: visible[index*batch_size:(index+1)*batch_size]
-                for x, visible in zip(d_inputs, d_data_inputs),
-                y: label[index*batch_size:(index+1)*batch_size]
-                for y, label in zip(d_inputs, d_out_labels)
+                tsr: data[index*batch_size:(index+1)*batch_size]
+                for tsr, data in zip(d_inputs + d_labels,
+                                     d_data_inputs + d_out_labels)
             },
             name='predict',
             allow_input_downcast=True,
@@ -884,50 +892,15 @@ class RBM(Network):
             outputs=hessians,
             updates=None,
             givens={
-                x: visible[:index*batch_size]
-                for x, visible in zip(d_inputs, d_data_inputs),
-                y: label[:index*batch_size]
-                for y, label in zip(d_inputs, d_out_labels)
+                tsr: data[:index*batch_size]
+                for tsr, data in zip(d_inputs + d_labels,
+                                     d_data_inputs + d_out_labels)
             }
         )
 
 
-def sgd_updates(params, grads, learning_rate=1e-3):
-    """
-    sgd_updates func
-
-    Stochastic Gradient Descent (SGD)
-        Generates update expressions of the form:
-        param := param - learning_rate * gradient
-
-    Parameters
-    ----------
-    params : `list` of shared variables
-        The variables to generate update expressions for\n
-    grads : `list` of shared variables
-        The update expressions for each variable\n
-    learning_rate : `float` or symbolic scalar
-        The learning rate controlling the size of update steps\n
-
-    Returns
-    -------
-    updates:
-        Specify how to update the parameters of the model as a list of
-        (variable, update expression)
-    """
-    # given two lists of the same length, A = [a1, a2, a3, a4] and
-    # B = [b1, b2, b3, b4], zip generates a list C of same size, where each
-    # element is a pair formed from the two lists :
-    # C = [(a1, b1), (a2, b2), (a3, b3), (a4, b4)]
-    updates = [
-        (param, param-learning_rate*grad)
-        for param, grad in zip(params, grads)
-    ]
-
-    return updates
-
-
 def main(rbm):
+    rbm.build_fn()
     pass
 
 if __name__ == '__main__':

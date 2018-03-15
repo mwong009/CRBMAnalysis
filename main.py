@@ -1,4 +1,5 @@
 import theano
+import os
 import pickle
 import sys
 import os
@@ -877,15 +878,11 @@ class RBM(Network):
             on_unused_input='warn'
         )
 
-        self.statistics = theano.function(
-            inputs=[index],
-            outputs=hessians,
-            updates=None,
-            givens={
-                tsr: data[:index * batch_size]
-                for tsr, data in zip(d_inputs + d_labels,
-                                     d_data_inputs + d_out_labels)
-            }
+                print(
+                    ("epoch {0:i} batch {1:d}/{2:d}"
+                     " gibbs cost: {3:.3f}, cost {4:.3f}").format{
+                     epoch, minibatch_index, num_train_batches,
+                     gibbs_cost, cost}
         )
 
 

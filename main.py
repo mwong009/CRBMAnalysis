@@ -5,84 +5,88 @@ import os
 import numpy as np
 import theano.tensor as T
 import optimizers as opt
+import matplotlib.pyplot as plt
 
 from collections import OrderedDict as odict
 from itertools import chain
+from pylab import rcParams
 
 net = 'net1', {
     'n_hidden': (16,),
     'seed': 42,
     'batch_size': 32,
-    'variable_types': ['binary', 'integer', 'real', 'category'],
+    'variable_dtypes': ['binary', 'integer', 'real', 'category'],
     'noisy_rectifier': True,
     'learning rate': 1e-3,
-    'gibbs steps': 1
+    'gibbs steps': 1,
+    'shapes': {}
 }
 
 
 class Network(object):
-    def __init__(self, name, hyperparameters=odict()):
+    def __init__(self, name, hyper, load_params=False):
 
-        self.path = name
+        if load_params:
+            try:
+                with open(name + '.params', 'rb') as f:
+                    model_values, hyper, curves = pickle.load(f)
+            except IOError as e:
+                print("Error opening file: ", e)
+        else:
+            model_values = {}
+            curves = {'CD error': [], 'log likelihood': []}
 
-        seed = hyperparameters['seed']
-        self.np_rng = np.random.RandomState(seed)
-        self.theano_rng = T.shared_randomstreams.RandomStreams(seed)
+        # initialize random number generator
+        self.np_rng = np.random.RandomState(hyper['seed'])
+        self.theano_rng = T.shared_randomstreams.RandomStreams(hyper['seed'])
 
-        model_values, hyper, curves = self.load_params(name, hyperparameters)
+        self.name = name
         self.model_values = model_values
         self.hyperparameters = hyper
         self.monitoring_curves = curves
         self.model_params = odict()
 
     def save_params(self):
+        """
+        save_params func
+            Saves model parameter values to a pickle file. To read
+            params, unpickle and reshape.
 
-        path = self.path+'.params'
+        """
+
+        path = self.name + '.params'
         hyper = self.hyperparameters
         curves = self.monitoring_curves
         model_values = {}
         # evaluating tensor shared variable to numpy array
         for param_name, param in self.model_params:
-            model_values[param_name] = param.eval()
+            shape = self.hyperparameters['shapes'][name]
+            model_values[param_name] = param.eval().reshape(shape)
 
         to_file = model_values, hyper, curves
         with open(path, 'wb') as f:
             pickle.dump(to_file, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def load_params(self, name, hyperparameters):
-        """
-        load_params func
+    def plot_curves(self):
 
-        Parameters
-        ----------
-        name: `str`
-            Name of the hyperparmeter\n
-        hyperparameters : `dict{}`
-            dictionary of the hyperparameters\n
-
-        Returns
-        -------
-        model_values : `{key: value}` pair of saved parameter values`\n
-        hyperparameters : Updated list of hyperparameters`\n
-        curves: monitoring curves\n
-        """
-        path = name + '.params'
-        if os.path.isfile(path):
-            with open(path, 'rb') as f:
-                model_values, hyper, curves = pickle.load(f)
-
-            # update hyperparameters from init
-            for key, value in hyper.items():
-                hyperparameters[key] = value
-
-        else:
-            model_values = {}
-            curves = {
-                'CD error': [],
-                'log likelihood': []
-            }
-
-        return model_values, hyperparameters, curves
+        curves = self.monitoring_curves
+        fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2)
+        rcParams['axes.xmargin'] = 0
+        rcParams['axes.ymargin'] = 0
+        ax1.set(title='CD loss', xlabel='iterations')
+        ax1.plot(
+            *zip(*curves[0]),
+            linewidth=0.5,
+            alpha=0.8,
+            linestyle='--',
+            color='C0'
+        )
+        ax2.set(title='log likelihood loss', xlabel='iterations')
+        ax2.plot(
+            *zip(*curves[1]),
+            linewidth=0.5,
+            alpha=0.8
+        )
 
 
 class RBM(Network):
@@ -90,42 +94,45 @@ class RBM(Network):
     def __init__(self, name, hyperparameters=odict()):
         Network.__init__(self, name, hyperparameters)
         self.input = []         # list of tensors
-        self.input_type = []    # list of str types
+        self.input_dtype = []    # list of str dtypes
         self.output = []        # list of tensors
-        self.output_type = []   # list of str types
+        self.output_dtype = []   # list of str dtypes
         self.label = []         # list of label tensors
         self.hbias = []
         self.W_params = []      # list of ALL the W params
         self.V_params = []      # list of the xWh params
         self.U_params = []      # list of the hWy params
-        self.B_params = []
+        self.B_params = []      # list of all Bx params
         self.vbias = []
         self.cbias = []
-        # flatten version
+        # flattened version
         self.W_params_flat = []      # list of ALL the W params
         self.V_params_flat = []      # list of the xWh params
         self.U_params_flat = []      # list of the hWy params
-        self.B_params_flat = []
+        self.B_params_flat = []      # list of the Bx params
         self.vbias_flat = []
         self.cbias_flat = []
 
-        self.add_hbias()
-
-    def add_hbias(self, name='hbias'):
+    def add_hbias(self, name='hbias', shp_hidden=None):
         """
         add_hbias func
 
         Parameters
         ----------
-        name: `str`, optional
+        name : `str`, optional
             Name of hidden node e.g. `'hbias'`
+        shp_hidden : `tuple`, optional
+            Size of the hidden units
 
         Updates
         -------
-        self.hbias[] : sequence of `theano.shared()`\n
-        self.model_params[name] : OrderedDict of `theano.shared()`\n
+        self.hbias[] : sequence of `theano.shared()`
+        self.model_params[name] : OrderedDict of `theano.shared()`
         """
-        shp_hidden = self.hyperparameters['n_hidden']
+        if shp_hidden is None:
+            shp_hidden = self.hyperparameters['n_hidden']
+        else:
+            self.hyperparameters['n_hidden'] = shp_hidden
         if name in self.model_values.keys():
             hbias = theano.shared(
                 value=self.model_values[name],
@@ -134,10 +141,7 @@ class RBM(Network):
             )
         else:
             hbias = theano.shared(
-                value=np.zeros(
-                    shape=shp_hidden,
-                    dtype=theano.config.floatX
-                ),
+                value=np.zeros(shape=shp_hidden, dtype=theano.config.floatX),
                 name='hbias',
                 borrow=True
             )
@@ -145,37 +149,44 @@ class RBM(Network):
         self.hbias.append(hbias)
         self.model_params[name] = hbias
 
-    def add_node(self, var_type, name):
+    def add_node(self, var_dtype, name, shp_visible=None):
         """
         add_node func
 
         Parameters
         ----------
-        var_type : `str`
+        var_dtype : `str`
             Type of variables e.g. 'binary', 'category',
             see hyperparameters for more information
-        name : `str`, optional
+        name : `str`
             Name of visible node e.g. 'age'
+        shp_visible : `tuple`, optional
+            Size of the visible units
 
         Updates
         -------
         self.input[] : sequence of `T.tensor3()`\n
-        self.input_type[] : sequence of `str`\n
+        self.input_dtype[] : sequence of `str`\n
         self.W_params[] : sequence of `theano.shared()`\n
         self.vbias[] : sequence of `theano.shared()`\n
         self.model_params['x_'+name] : OrderedDict of `theano.shared()`\n
         """
-        if var_type not in self.hyperparameters['variable_types']:
-            print('variable type \'%s\' not implemented!' % t)
-            raise NotImplementedError
+        try:
+            var_dtype in self.hyperparameters['variable_dtypes']
+        except KeyError as e:
+            print("variable dtype {0:s} not implemented!".format(var_dtype))
+
+        if shp_visible is None:
+            shp_visible = self.hyperparameters['shapes'][name]
+        else:
+            self.hyperparameters['shapes'][name] = shp_visible
 
         shp_hidden = self.hyperparameters['n_hidden']
-        shp_visible = self.hyperparameters[name]
         tsr_variable = T.tensor3(name)  # input tensor as (rows, items, cats)
 
         # Create the tensor shared variables as (items, cats, hiddens)
-        if 'W_'+name in self.model_values.keys():
-            size = shp_visible+shp_hidden
+        if 'W_' + name in self.model_values.keys():
+            size = shp_visible + shp_hidden
             W_flat = theano.shared(
                 value=self.model_values['W_'+name],
                 name='W_'+name,
@@ -183,18 +194,14 @@ class RBM(Network):
             )
             W = W_flat.reshape(size)
         else:
-            size = shp_visible+shp_hidden
+            size = shp_visible + shp_hidden
             W_flat = theano.shared(
-                value=np.random.uniform(
-                    low=-np.sqrt(6./np.sum(size)),
-                    high=np.sqrt(6./np.sum(size)),
-                    size=np.prod(size)
-                ),
+                value=np.random.normal(loc=0., scale=0.1, size=np.prod(size)),
                 name='W_'+name,
                 borrow=True
             )
             W = W_flat.reshape(size)
-        if 'vbias_'+name in self.model_values.keys():
+        if 'vbias_' + name in self.model_values.keys():
             size = shp_visible
             vbias_flat = theano.shared(
                 value=self.model_values['vbias_'+name],
@@ -215,48 +222,55 @@ class RBM(Network):
             vbias = vbias_flat.reshape(size)
 
         self.input.append(tsr_variable)
-        self.input_type.append(var_type)
+        self.input_dtype.append(var_dtype)
         self.W_params.append(W)
         self.V_params.append(W)
         self.vbias.append(vbias)
         self.W_params_flat.append(W_flat)
         self.V_params_flat.append(W_flat)
         self.vbias_flat.append(vbias_flat)
-        self.model_params['W_'+name] = W_flat
-        self.model_params['vbias_'+name] = vbias_flat
+        self.model_params['W_' + name] = W_flat
+        self.model_params['vbias_' + name] = vbias_flat
 
-    def add_connection_to(self, var_type, name='output'):
+    def add_connection_to(self, var_dtype, name, shp_output=None):
         """
         add_connection_to func
 
         Parameters
         ----------
-        var_type : `str`
-            Type of variables e.g. `'binary'`, `'category'`,
-            see hyperparameters for more information
-        name : string, optional
+        var_dtype : `str`
+            Type of variables e.g. `'binary'`, `'category'`, see
+            hyperparameters for more information
+        name : `str`
             Name of visible node e.g. `'mode_prime'`
+        shp_output : `tuple`, optional
+            Size of the visible units
 
         Updates
         -------
-        self.output[] : sequence of `[T.matrix(), str]`\n
-        self.W_params[] : sequence of `theano.shared()`\n
-        self.cbias[] : sequence of `theano.shared()`\n
-        self.B_params[] : sequence of `theano.shared()`\n
-        self.model_params[] : sequence of `theano.shared()`\n
+        self.output[] : sequence of `T.matrix()`
+        self.W_params[] : sequence of `theano.shared()`
+        self.cbias[] : sequence of `theano.shared()`
+        self.B_params[] : sequence of `theano.shared()`
+        self.model_params[] : sequence of `theano.shared()`
         """
-        if var_type not in self.hyperparameters['variable_types']:
-            print('variable type \'%s\' not implemented!' % t)
-            raise NotImplementedError
+        try:
+            var_dtype in self.hyperparameters['variable_types']
+        except KeyError as e:
+            print("variable type {0:s} not implemented!".format(var_dtype))
+
+        if shp_output is None:
+            shp_output = self.hyperparameters['shapes'][name]
+        else:
+            self.hyperparameters['shapes'][name] = shp_output
 
         shp_hidden = self.hyperparameters['n_hidden']
-        shp_output = self.hyperparameters[name]
         tsr_variable = T.matrix(name)  # output tensor as (rows, outs)
-        tsr_label = T.ivector(name+'_label')  # 1D vector of [int] labels
+        tsr_label = T.ivector(name + '_label')  # 1D vector of [int] labels
 
         # Create the tensor shared variables as (outs, hiddens)
-        if 'W_'+name in self.model_values.keys():
-            size = shp_output+shp_hidden
+        if 'W_' + name in self.model_values.keys():
+            size = shp_output + shp_hidden
             W_flat = theano.shared(
                 value=self.model_values['W_'+name],
                 name='W_'+name,
@@ -264,18 +278,14 @@ class RBM(Network):
             )
             W = W_flat.reshape(size)
         else:
-            size = shp_output+shp_hidden
+            size = shp_output + shp_hidden
             W_flat = theano.shared(
-                value=np.random.uniform(
-                    low=-np.sqrt(6./np.sum(size)),
-                    high=np.sqrt(6./np.sum(size)),
-                    size=np.prod(size)
-                ),
+                value=np.random.normal(loc=0., scale=0.1, size=np.prod(size)),
                 name='W_'+name,
                 borrow=True
             )
             W = W_flat.reshape(size)
-        if 'cbias_'+name in self.model_values.keys():
+        if 'cbias_' + name in self.model_values.keys():
             size = shp_output
             cbias_flat = theano.shared(
                 value=self.model_values['cbias_'+name],
@@ -296,7 +306,7 @@ class RBM(Network):
             cbias = cbias_flat.reshape(size)
 
         self.output.append(tsr_variable)
-        self.output_type.append(var_type)
+        self.output_dtype.append(var_dtype)
         self.label.append(tsr_label)
         self.W_params.append(W)
         self.U_params.append(W)
@@ -304,28 +314,28 @@ class RBM(Network):
         self.W_params_flat.append(W_flat)
         self.U_params_flat.append(W_flat)
         self.cbias_flat.append(cbias_flat)
-        self.model_params['W_'+name] = W_flat
-        self.model_params['cbias_'+name] = cbias_flat
+        self.model_params['W_' + name] = W_flat
+        self.model_params['cbias_' + name] = cbias_flat
 
         # condtional RBM connection (B weights)
         for node in self.input:
             var_name = node.name
-            shp_visible = self.hyperparameters[var_name]
+            shp_visible = self.hyperparameters['shapes'][var_name]
 
             # Create the tensor shared variables as (items, cats, outs)
-            if 'B_'+var_name in self.model_values.keys():
-                size = shp_visible+shp_output
+            if 'B_' + var_name in self.model_values.keys():
+                size = shp_visible + shp_output
                 B_flat = theano.shared(
                     value=self.model_values['B_'+var_name],
-                    name='B_'+var_name,
+                    name='B_'+var_name+'_'+name,
                     borrow=True
                 )
                 B = B_flat.reshape(size)
             else:
                 B_flat = theano.shared(
                     value=np.random.uniform(
-                        low=-np.sqrt(6/np.sum(size)),
-                        high=np.sqrt(6/np.sum(size)),
+                        low=-4*np.sqrt(6./np.sum(size)),
+                        high=4*np.sqrt(6./np.sum(size)),
                         size=np.prod(size)
                     ),
                     name='B_'+var_name+'_'+name,
@@ -335,7 +345,7 @@ class RBM(Network):
 
             self.B_params.append(B)
             self.B_params_flat.append(B_flat)
-            self.model_params['B_'+var_name+'_'+name] = B_flat
+            self.model_params['B_' + var_name + '_' + name] = B_flat
 
     def free_energy(self, input=None):
         """
@@ -353,12 +363,7 @@ class RBM(Network):
         F(y,x) :
             Scalar value of the generative model free energy
 
-        Notes
-        -----
-        The free energy for the generative model is compu
-        # loop over all input nodested as:
-
-        :math:\n
+        :math:
         `F(y,x,h) = -(xWh + yWh + vbias*x + hbias*h + cbias*y)`\n
         `    wx_b = xW + yW + hbias`\n
         `  F(y,x) = -{vbias*x + cbias*y + sum_k[ln(1+exp(wx_b))]}`\n
@@ -369,7 +374,7 @@ class RBM(Network):
             visibles = self.input + self.output
         else:
             visibles = input
-        types = self.input_type + self.output_type
+        dtypes = self.input_dtype + self.output_dtype
         hbias = self.hbias[0]
         vbiases = self.vbias + self.cbias
         W_params = self.W_params
@@ -381,11 +386,11 @@ class RBM(Network):
         # wx_b = hbias : (hiddens,) broadcast(T,F) --> (rows, hiddens)
         wx_b = hbias
         utility = 0  # (rows,)
-        for t, v, W, vbias in zip(types, visibles, W_params, vbiases):
-            if t is 'real':
+        for dtype, v, W, vbias in zip(dtypes, visibles, W_params, vbiases):
+            if dtype is 'real':
                 vbias = vbias.dimshuffle('x', 0, 1)
                 # utility = sum_{i} 0.5(v-vbias)^2 : (rows,)
-                utility += T.sum(T.sqr(v - vbias)/2., axis=(1, 2))
+                utility += T.sum(T.sqr(v - vbias) / 2., axis=(1, 2))
             else:
                 # utility = v.vbias : (rows,)
                 utility += T.tensordot(v, vbias, axes=[[1, 2], [0, 1]])
@@ -399,7 +404,7 @@ class RBM(Network):
 
         # utility --> (rows,)
         # ...axis=1) sums over hidden axis --> (rows,)
-        entropy = T.sum(T.log(1+T.exp(wx_b)), axis=1)
+        entropy = T.sum(T.log(1 + T.exp(wx_b)), axis=1)
         return - (utility + entropy)
 
     def discriminative_free_energy(self, input=None):
@@ -425,13 +430,13 @@ class RBM(Network):
         -----
         The free energy for the discriminative model is computed as:
 
-        :math:\n
+        :math:
         `F(y,x,h) = -(xWh + yWh + yBx + vbias*x + hbias*h + cbias*y)`\n
         `    wx_b = xW_{ik} + yW_{jk} + hbias`\n
-        `  F(y,x) = -{vbias*x + cbias*y + yBx + sum_k[ln(1+exp(wx_b))]}`\n
-        `  F(y|x) = -{vbias*x + cbias + Bx + sum_k[ln(1+exp(wx_b)]}`
+        `  F(y,x) = -{cbias*y + yBx + sum_k[ln(1+exp(wx_b))]}`\n
+        `  F(y|x) = -{cbias + Bx + sum_k[ln(1+exp(wx_b)]}`\n
 
-        :params: used are W^1, W^2, B, c, h, v biases
+        :params: used are W^1, W^2, B, c, h biases
 
         """
         # amend input if given an input. e.g. free_energy(chain_end)
@@ -439,12 +444,11 @@ class RBM(Network):
             visibles = self.input
         else:
             visibles = input
-        types = self.input_type
         hbias = self.hbias[0]
         cbias = self.cbias
         vbias = self.vbias
-        xWh_params = self.W_params[:len(visibles)]
-        hWy_params = self.W_params[len(visibles):]
+        xWh_params = self.V_params
+        hWy_params = self.U_params
         B_params = self.B_params
 
         # rebroadcast hidden unit biases
@@ -456,9 +460,7 @@ class RBM(Network):
         # x : input variables
         # W, B : weights
         # a : input biases
-        # t : input types
-        for x, xWh, B, a, t in zip(visibles, xWh_params, B_params, vbias,
-                                   types):
+        for x, xWh, B in zip(visibles, xWh_params, B_params):
             # matrix dot product between input variables and hidden units
             # xw = xW_{ik} : (rows, hiddens)
             # wx_b = xW_{ik} + hbias : (rows, hiddens, outs)
@@ -484,21 +486,9 @@ class RBM(Network):
                     # utility[i] = cbias + Bx : (rows, outs)
                     utility[i] += T.tensordot(x, B, axes=[[1, 2], [0, 1]])
 
-                if t is 'real':
-                    a = a.dimshuffle('x', 0, 1)
-                    # utility = sum_{i} 0.5(v-a)^2 : (rows,)
-                    vbias_term = T.sum(T.sqr(x - a)/2., axis=(1, 2))
-                else:
-                    # utility = v.vbias : (rows,)
-                    vbias_term = T.tensordot(x, a, axes=[[1, 2], [0, 1]])
-
-                # vbias : (rows,) --> (rows, 'x')
-                # utility = cbias + Bx + vbias
-                utility[i] += vbias_term.dimshuffle(0, 'x')
-
         # sum over hiddens axis
         # sum_k \ln(1+\exp(wx_b)) : (rows, hiddens, outs) -- > (rows, outs)
-        entropy = T.sum(T.log(1+T.exp(wx_b)), axis=1)
+        entropy = T.sum(T.log(1 + T.exp(wx_b)), axis=1)
 
         # add entropy to each expected utility term
         # -F(y|x)  (rows, outs)
@@ -510,7 +500,7 @@ class RBM(Network):
 
     def sample_h_given_v(self, v0_samples):
         """
-        sample_h_given_v func\n
+        sample_h_given_v func
             Binomial hidden units
 
         Parameters
@@ -521,16 +511,16 @@ class RBM(Network):
         Returns
         -------
         h1_preactivation : `scalar` (-inf, inf)
-            preactivation function e.g. logit utility func\n
+            preactivation function e.g. logit utility func
         h1_means : `scalar` (0, 1)
-            sigmoid activation\n
+            sigmoid activation
         h1_samples : `integer` 0 or 1
-            binary samples\n
+            binary samples
         """
         # prop up
         W_params = self.params
         hbias = self.hbias
-        h1_preactivation = self.propup(v0_samples, W_params, hbias)
+        h1_preactivation = self.propup(v0_samples, W_params, hbias[0])
 
         # h ~ p(h|v0_sample)
         h1_means = T.nnet.sigmoid(h1_preactivation)
@@ -544,7 +534,7 @@ class RBM(Network):
 
     def propup(self, samples, weights, bias):
 
-        preactivation = bias[0]
+        preactivation = bias
         # (rows, items, cats), (items, cats, hiddens)
         # (rows, outs), (outs, hiddens)
         for v, W, t in zip(samples, weights):
@@ -576,15 +566,15 @@ class RBM(Network):
         """
         # prop down
         W_params = self.W_params
-        vbias = self.vbias + self.cbias
-        v1_preactivation = propdown(h0_samples, W_params, vbias)
+        bias = self.vbias + self.cbias
+        v1_preactivation = propdown(h0_samples, W_params, bias)
 
         # v ~ p(v|h0_sample)
         v1_means = []
         v1_samples = []
-        types = self.input_type + self.output_type
-        for v1, t in zip(v1_preactivation, types):
-            if t is 'binary':
+        dtypes = self.input_dtype + self.output_dtype
+        for v1, dtype in zip(v1_preactivation, dtypes):
+            if dtype is 'binary':
                 v1_mean = T.nnet.sigmoid(v1)
                 v1_sample = self.theano_rng.binomial(
                     size=v1.shape,
@@ -592,19 +582,19 @@ class RBM(Network):
                     dtype=theano.config.floatX
                 )
 
-            elif t is 'category':
+            elif dtype is 'category':
                 tau = 1.  # softmax temperature value \tau (default=1)
                 epsilon = 1e-10  # small value to prevent log(0)
                 uniform = self.theano_rng.uniform(
                     size=v1.shape,
                     dtype=theano.config.floatX
                 )
-                gumbel = -(-T.log(uniform + epsilon) + epsilon)
+                gumbel = - (- T.log(uniform + epsilon) + epsilon)
                 # reshape softmax tensors to 2D matrix
                 if v1.ndim == 3:
                     (d1, d2, d3) = v1.shape
                     logit = (v1 + gumbel).reshape((d1 * d2, d3))
-                    v1_mean = T.nnet.softmax(logit/tau)
+                    v1_mean = T.nnet.softmax(logit / tau)
                     # reshape back into original dimensions
                     v1_mean = v1_mean.reshape((d1, d2, d3))
                 else:
@@ -612,15 +602,18 @@ class RBM(Network):
                     v1_mean = T.nnet.softmax(logit/tau)  # (rows, items, cats)
                 v1_sample = v1_mean
 
-            elif t is 'real':
+            elif dtype is 'real':
                 v1_mean = v1
-                v1_sample = self.theano_rng.normal(
-                    size=v1_mean.shape,
+                v1_std = T.nnet.sigmoid(v1)
+                normal_sample = self.theano_rng.normal(
+                    size=v1_mean.shape,  # (rows, items, cats)
                     avg=v1_mean,
+                    std=v1_std,
                     dtype=theano.config.floatX
-                )  # (rows, items, cats)
+                )
+                v1_sample = T.nnet.relu(normal_sample)
 
-            elif t is 'integer':
+            elif dtype is 'integer':
                 if self.hyperparameters['noisy_rectifier'] is True:
                     v1_mean = T.nnet.sigmoid(v1)
                     normal_sample = self.theano_rng.normal(
@@ -634,7 +627,7 @@ class RBM(Network):
                     # slower implementation of NReLu but more accurate
                     # values and samples exact integers from v1
                     N = 200
-                    offset = -np.arange(1, 200) + 0.5
+                    offset = - np.arange(1, N) + 0.5
                     # (rows, items, cats, Ns)
                     v1 = T.shape_padright(v1) + offset
                     v1_mean = T.nnet.sigmoid(v1)
@@ -664,7 +657,7 @@ class RBM(Network):
                 W = W.dimshuffle(1, 0)
             else:
                 W = W.dimshuffle(0, 2, 1)
-            preactivation.append(T.dot(samples, W) + bias)
+            preactivation.append(T.dot(samples, W) + b)
 
         return preactivation
 
@@ -689,21 +682,20 @@ class RBM(Network):
         # prepare visible samples from x input
         v0_samples = self.input
         labels = self.output_labels
-        types = self.output_type
+        dtypes = self.output_dtype
 
         logits = self.discriminative_free_energy()
         cost = []
         updates = odict()
-        for i, (logit, label, t) in enumerate(zip(logits, labels, types)):
-            if t is 'real':
-                mse = T.mean((-logit-label)**2, axis=0)
+        for i, (logit, label, dtype) in enumerate(zip(logits, labels, dtypes)):
+            if dtype is 'real':
+                mse = T.mean(T.sqr(- logit - label), axis=0)
                 cost.append(mse)
             else:
                 p_y_given_x = T.nnet.softmax(-logit)
                 cost.append(self.get_loglikelihood(p_y_given_x, label))
             # calculate the gradients
-            params = self.V_params + self.hbias + self.vbias \
-                + self.U_params[i] + self.cbias[i] + self.B_params[i]
+            params = self.B_params[i] + self.cbias[i]
             grads = T.grad(cost=cost[i], wrt=params)
             # a list of update expressions (variable, update expression)
             update = opt.adam_updates(params, grads, lr, amsgrad=True)
@@ -719,13 +711,12 @@ class RBM(Network):
 
         # prepare visible samples from x input
         v0_samples = self.input
-        labels = self.output_labels
 
         logits = self.discriminative_free_energy()
         # s is to scale the learning rate to the number of output nodes
         s = len(logits)
         preds = []
-        for i, (logit, label) in enumerate(zip(logits, labels)):
+        for i, logit in enumerate(zip(logits)):
             p_y_given_x = T.nnet.softmax(-logit)
             pred = T.argmax(p_y_given_x, axis=1)
             preds.append(pred)
@@ -747,6 +738,7 @@ class RBM(Network):
         # start of Gibbs sampling chain
         # we only want the samples generated from the Gibbs sampling phase
         chain_start = h1_samples
+        scan_out = 3 * len(v0_samples) * [None] + [None, None, chain_start]
 
         # theano scan function to loop over all Gibbs steps k
         # [v1_means[], v1_means[], h1_means, h1_samples]
@@ -755,7 +747,7 @@ class RBM(Network):
         # NOTE: scan returns a dictionary of updates
         gibbs_output, gibbs_updates = theano.scan(
             fn=self.gibbs_hvh,
-            outputs_info=3*len(v0_samples)*[None]+[None, None, chain_start],
+            outputs_info=scan_out,
             n_steps=k,
             name='gibbs_hvh'
         )
@@ -766,8 +758,8 @@ class RBM(Network):
             chain_end.append(output[-1])
 
         gibbs_pre = chain_end[:len(v0_samples)]
-        gibbs_means = chain_end[len(v0_samples):2*len(v0_samples)]
-        gibbs_samples = chain_end[2*len(v0_samples):3*len(v0_samples)]
+        gibbs_means = chain_end[len(v0_samples): 2 * len(v0_samples)]
+        gibbs_samples = chain_end[2 * len(v0_samples): 3 * len(v0_samples)]
 
         # calculate the model cost
         initial_cost = T.mean(self.free_energy())
@@ -775,13 +767,12 @@ class RBM(Network):
         cost = initial_cost - final_cost
 
         # calculate the gradients
-        params = self.W_params + self.hbias + self.vbias + self.cbias
+        params = self.W_params + self.hbias + self.vbias
         grads = T.grad(
             cost=cost,
             wrt=params,
             consider_constant=gibbs_samples
         )
-
         updates = opt.adam_updates(params, grads, lr, amsgrad=True)
 
         # update Gibbs chain with update expressions
@@ -802,21 +793,20 @@ class RBM(Network):
 
     def get_t_statistcs(self):
 
-        labels = self.output_labels
         logits = self.discriminative_free_energy()
         # s is to scale the learning rate to the number of output nodes
         s = len(logits)
-        for i, (logit, label) in enumerate(zip(logits, labels)):
+        for i, logit in enumerate(zip(logits)):
             p_y_given_x = T.nnet.softmax(-logit)
             cost.append(self.get_loglikelihood(p_y_given_x, label))
             # calculate the gradients
-            params = self.hbias + self.V_params_flat + self.vbias_flat \
-                + self.U_params_flat[i] + self.B_params_flat[i] \
-                + self.cbias_flat[i]
+            params = self.B_params_flat[i] + self.cbias_flat[i]
+
             hessians = T.hessian(cost=cost[i], wrt=params)
-            cr_bound = T.diag(-1/hessians)
+            cr_bound = T.diag(-1. / hessians)
             sigma = T.sqrt(cr_bound)
             t_stat = params / sigma
+
         return hessians
 
     def build_fn(self, train_set_x, train_set_y, train_set_labels):
@@ -851,7 +841,7 @@ class RBM(Network):
             outputs=cost,
             updates=gibbs_updates,
             givens={
-                x: visible[index*batch_size:(index+1)*batch_size]
+                x: visible[index * batch_size: (index + 1) * batch_size]
                 for x, visible in zip(tensor_inputs, data_inputs)
             },
             name='generate',
@@ -864,7 +854,7 @@ class RBM(Network):
             outputs=d_cost,
             updates=d_updates,
             givens={
-                tsr: data[index*batch_size:(index+1)*batch_size]
+                tsr: data[index * batch_size: (index + 1) * batch_size]
                 for tsr, data in zip(d_inputs + d_labels,
                                      d_data_inputs + d_out_labels)
             },
@@ -878,7 +868,7 @@ class RBM(Network):
             outputs=preds,
             updates=None,
             givens={
-                tsr: data[index*batch_size:(index+1)*batch_size]
+                tsr: data[index * batch_size: (index + 1) * batch_size]
                 for tsr, data in zip(d_inputs + d_labels,
                                      d_data_inputs + d_out_labels)
             },
@@ -892,7 +882,7 @@ class RBM(Network):
             outputs=hessians,
             updates=None,
             givens={
-                tsr: data[:index*batch_size]
+                tsr: data[:index * batch_size]
                 for tsr, data in zip(d_inputs + d_labels,
                                      d_data_inputs + d_out_labels)
             }

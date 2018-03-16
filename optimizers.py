@@ -1,13 +1,13 @@
-import numpy as np
 import theano
+import numpy as np
+import theano.tensor as T
 
 
 class Optimizers(object):
     def __init__(self, name=None):
         self.name = name
 
-    @staticmethod
-    def sgd_updates(params, grads, learning_rate=1e-3):
+    def sgd_updates(self, params, grads, learning_rate=1e-3):
         """
         sgd_updates func
 
@@ -40,8 +40,7 @@ class Optimizers(object):
 
         return updates
 
-    @staticmethod
-    def rmsprop_updates(params, grads, learning_rate=1e-3, rho=0.9,
+    def rmsprop_updates(self, params, grads, learning_rate=1e-3, rho=0.9,
                         e=1e-8, nesterov=False):
         """
         rmsprop_updates func
@@ -106,8 +105,7 @@ class Optimizers(object):
 
         return updates
 
-    @staticmethod
-    def nesterov_updates(params, grads, learning_rate=1e-3, m=0.9):
+    def nesterov_updates(self, params, grads, learning_rate=1e-3, m=0.9):
         """
         nesterov_updates func
 
@@ -154,9 +152,8 @@ class Optimizers(object):
 
         return updates
 
-    @staticmethod
-    def adam_updates(params, grads, learning_rate=1e-3, b1=0.9, b2=0.999,
-                     e=1e-8, amsgrad=False):
+    def adam_updates(self, params, grads, learning_rate=1e-3, b1=0.9, b2=0.999,
+                     e=1e-8, amsgrad=True):
         """
         adam_updates func
 
@@ -194,11 +191,14 @@ class Optimizers(object):
         """
         updates = []
         # initialize timestep
-        i = theano.shared(np.float32(0.))
+        i = theano.shared(np.zeros((1,), dtype=theano.config.floatX))
         # increment timestep
         i_t = i + 1.
         # adjust learning rate at timestep
-        lr_t = learning_rate * (T.sqrt(1. - b2**i_t) / (1. - b1**i_t))
+        fix1 = 1. - b1**i_t
+        fix2 = 1. - b2**i_t
+        lr_t = (learning_rate * (T.sqrt(fix2) / fix1)).eval()
+
         for param, grad in zip(params, grads):
             size = param.shape.eval()
             # 1st moment vector

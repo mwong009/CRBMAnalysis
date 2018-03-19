@@ -2,6 +2,7 @@ import theano
 import os
 import pickle
 import sys
+import time
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -1015,6 +1016,7 @@ def main(rbm):
     rbm.build_fn(train_set_x, train_set_y, train_set_label)
 
     epochs = 50
+    time_start = time.time()
     print('training the model...')
     n_train_batches = (rbm.hyperparameters['n_samples'] //
                        rbm.hyperparameters['batch_size'])
@@ -1027,11 +1029,11 @@ def main(rbm):
             cost.append(cost_items)
             iter = (epoch - 1) * n_train_batches + minibatch_index
         epoch_cost = np.asarray(cost).sum(axis=0)
+        t1 = time.time()
         print(
-            ("epoch {0:d} batch {1:d}/{2:d} gibbs cost: {3:.3f},"
-                " loglikelihood cost {4:.3f}").format(
-                epoch, minibatch_index + 1, n_train_batches,
-                epoch_cost[0], epoch_cost[1])
+            ("epoch {0:d} gibbs cost: {1:.3f},"
+                " loglikelihood cost {2:.3f} [{3:.5fs}]").format(
+                epoch, epoch_cost[0], epoch_cost[1], t1 - t0)
         )
         # curves = {'CD error': [], 'log likelihood': []}
         rbm.monitoring_curves['CD error'].append((iter, epoch_cost[0]))

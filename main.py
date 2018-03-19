@@ -1033,7 +1033,7 @@ def main(rbm):
         print(
             ("epoch {0:d} gibbs cost: {1:.3f},"
                 " loglikelihood cost {2:.3f} [{3:.5fs}]").format(
-                epoch, epoch_cost[0], epoch_cost[1], t1 - t0)
+                epoch, epoch_cost[0], epoch_cost[1], t1 - time_start)
         )
         # curves = {'CD error': [], 'log likelihood': []}
         rbm.monitoring_curves['CD error'].append((iter, epoch_cost[0]))

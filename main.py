@@ -19,7 +19,7 @@ VARIABLE_DTYPE_CATEGORY = 'category'
 VARIABLE_DTYPE_INTEGER = 'integer'
 
 net = 'net1', {
-    'n_hidden': (2,),
+    'n_hidden': (4,),
     'seed': 42,
     'batch_size': 32,
     'variable_dtypes': [
@@ -74,8 +74,11 @@ class Network(object):
         model_values = {}
         # evaluating tensor shared variable to numpy array
         for param_name, param in self.model_params.items():
-            shape = self.hyperparameters['shapes'][name]
-            model_values[param_name] = param.eval().reshape(shape)
+            if self.hyperparameters['shapes'][param_name]:
+                shape = self.hyperparameters['shapes'][param_name]
+                model_values[param_name] = param.eval().reshape(shape)
+            else:
+                model_values[param_name] = param.eval()
 
         to_file = model_values, hyper, curves
         with open(path, 'wb') as f:

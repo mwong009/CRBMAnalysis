@@ -52,7 +52,7 @@ class Network(object):
 
         """
 
-        path = '%s_%d.params'.format(self.name, iter)
+        path = '{0:s}_{1:d}.params'.format(self.name, iter)
         hyper = self.hyperparameters
         curves = self.monitoring_curves
         model_values = {}

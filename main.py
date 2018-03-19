@@ -1032,7 +1032,7 @@ def main(rbm):
         t1 = time.time()
         print(
             ("epoch {0:d} gibbs cost: {1:.3f},"
-                " loglikelihood cost {2:.3f} [{3:.5fs}]").format(
+                " loglikelihood cost {2:.3f} [{3:.5f}s]").format(
                 epoch, epoch_cost[0], epoch_cost[1], t1 - time_start)
         )
         # curves = {'CD error': [], 'log likelihood': []}

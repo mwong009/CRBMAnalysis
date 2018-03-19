@@ -75,21 +75,19 @@ class Network(object):
         fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2)
         rcParams['axes.xmargin'] = 0
         rcParams['axes.ymargin'] = 0
+        rcParams['figure.figsize'] = (12.8, 4.8)
         ax1.set(title='CD loss', xlabel='iterations')
         ax1.plot(
             *zip(*curves['CD error']),
             linewidth=0.5,
-            alpha=0.8,
-            linestyle='--',
             color='C0'
         )
         ax2.set(title='log likelihood loss', xlabel='iterations')
         ax2.plot(
             *zip(*curves['log likelihood']),
-            linewidth=0.5,
-            alpha=0.8
+            linewidth=0.5
         )
-
+        fig.set
         fig.savefig(self.name)
 
 
@@ -1000,7 +998,7 @@ def main(rbm):
 
     rbm.build_fn(train_set_x, train_set_y, train_set_label)
 
-    epochs = 5
+    epochs = 100
     time_start = time.time()
     print('training the model...')
     n_train_batches = (rbm.hyperparameters['n_samples'] //
@@ -1029,7 +1027,7 @@ def main(rbm):
 
 if __name__ == '__main__':
     net = 'net1', {
-        'n_hidden': (4,),
+        'n_hidden': (1,),
         'seed': 42,
         'batch_size': 32,
         'variable_dtypes': [
@@ -1046,5 +1044,20 @@ if __name__ == '__main__':
     }
     main(RBM(*net))
     net = 'net2', net[1]
+    net[1]['n_hidden'] = (2,)
+    main(RBM(*net))
+    net = 'net4', net[1]
+    net[1]['n_hidden'] = (4,)
+    main(RBM(*net))
+    net = 'net8', net[1]
     net[1]['n_hidden'] = (8,)
+    main(RBM(*net))
+    net = 'net16', net[1]
+    net[1]['n_hidden'] = (16,)
+    main(RBM(*net))
+    net = 'net32', net[1]
+    net[1]['n_hidden'] = (32,)
+    main(RBM(*net))
+    net = 'net64', net[1]
+    net[1]['n_hidden'] = (64,)
     main(RBM(*net))

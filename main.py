@@ -19,23 +19,6 @@ VARIABLE_DTYPE_REAL = 'real'
 VARIABLE_DTYPE_CATEGORY = 'category'
 VARIABLE_DTYPE_INTEGER = 'integer'
 
-net = 'net1', {
-    'n_hidden': (4,),
-    'seed': 42,
-    'batch_size': 32,
-    'variable_dtypes': [
-        VARIABLE_DTYPE_BINARY,
-        VARIABLE_DTYPE_REAL,
-        VARIABLE_DTYPE_CATEGORY
-    ],
-    'noisy_rectifier': True,
-    'learning_rate': 1e-3,
-    'gibbs_steps': 1,
-    'shapes': {},
-    'amsgrad': True,
-    'alpha': 1.0
-}
-
 
 class Network(object):
     def __init__(self, name, hyper, load_params=False):
@@ -1015,7 +998,7 @@ def main(rbm):
 
     rbm.build_fn(train_set_x, train_set_y, train_set_label)
 
-    epochs = 50
+    epochs = 5
     time_start = time.time()
     print('training the model...')
     n_train_batches = (rbm.hyperparameters['n_samples'] //
@@ -1043,4 +1026,23 @@ def main(rbm):
     print('train complete')
 
 if __name__ == '__main__':
+    net = 'net1', {
+        'n_hidden': (4,),
+        'seed': 42,
+        'batch_size': 32,
+        'variable_dtypes': [
+            VARIABLE_DTYPE_BINARY,
+            VARIABLE_DTYPE_REAL,
+            VARIABLE_DTYPE_CATEGORY
+        ],
+        'noisy_rectifier': True,
+        'learning_rate': 1e-3,
+        'gibbs_steps': 1,
+        'shapes': {},
+        'amsgrad': True,
+        'alpha': 1.0
+    }
+    main(RBM(*net))
+    net = 'net2', net[1]
+    net[1]['n_hidden'] = (8,)
     main(RBM(*net))

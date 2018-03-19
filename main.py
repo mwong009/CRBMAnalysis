@@ -58,11 +58,9 @@ class Network(object):
         model_values = {}
         # evaluating tensor shared variable to numpy array
         for param_name, param in self.model_params.items():
-            try:
+            if self.hyperparameters['shapes'][param_name]:
                 shape = self.hyperparameters['shapes'][param_name]
                 model_values[param_name] = param.eval().reshape(shape)
-            except KeyError:
-                pass
             else:
                 model_values[param_name] = param.eval()
 

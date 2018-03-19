@@ -90,6 +90,8 @@ class Network(object):
             alpha=0.8
         )
 
+        fig.savefig(self.name)
+
 
 class RBM(Network):
     ''' define the RBM toplevel '''

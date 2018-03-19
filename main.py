@@ -1021,8 +1021,8 @@ def main(rbm):
                 epoch, epoch_cost[0], epoch_cost[1], t1 - time_start)
         )
         # curves = {'CD error': [], 'log likelihood': []}
-        rbm.monitoring_curves['CD error'][iter] = epoch_cost[0]
-        rbm.monitoring_curves['log likelihood'][iter] = epoch_cost[1]
+        rbm.monitoring_curves['CD error'].append((iter, epoch_cost[0]))
+        rbm.monitoring_curves['log likelihood'].append((iter, epoch_cost[1]))
     rbm.save_params(iter)
     rbm.plot_curves()
     print('train complete')

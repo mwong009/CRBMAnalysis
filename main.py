@@ -77,7 +77,7 @@ class Network(object):
         rcParams['axes.ymargin'] = 0
         ax1.set(title='CD loss', xlabel='iterations')
         ax1.plot(
-            *zip(*curves[0]),
+            *zip(*curves[0].items()),
             linewidth=0.5,
             alpha=0.8,
             linestyle='--',
@@ -85,7 +85,7 @@ class Network(object):
         )
         ax2.set(title='log likelihood loss', xlabel='iterations')
         ax2.plot(
-            *zip(*curves[1]),
+            *zip(*curves[1].items()),
             linewidth=0.5,
             alpha=0.8
         )
@@ -1021,8 +1021,8 @@ def main(rbm):
                 epoch, epoch_cost[0], epoch_cost[1], t1 - time_start)
         )
         # curves = {'CD error': [], 'log likelihood': []}
-        rbm.monitoring_curves['CD error'].append((iter, epoch_cost[0]))
-        rbm.monitoring_curves['log likelihood'].append((iter, epoch_cost[1]))
+        rbm.monitoring_curves['CD error'][iter] = epoch_cost[0]
+        rbm.monitoring_curves['log likelihood'][iter] = epoch_cost[1]
     rbm.save_params(iter)
     rbm.plot_curves()
     print('train complete')

@@ -77,7 +77,7 @@ class Network(object):
         rcParams['axes.ymargin'] = 0
         ax1.set(title='CD loss', xlabel='iterations')
         ax1.plot(
-            *zip(*curves[0].items()),
+            *zip(*curves['CD error'].items()),
             linewidth=0.5,
             alpha=0.8,
             linestyle='--',
@@ -85,7 +85,7 @@ class Network(object):
         )
         ax2.set(title='log likelihood loss', xlabel='iterations')
         ax2.plot(
-            *zip(*curves[1].items()),
+            *zip(*curves['log likelihood'].items()),
             linewidth=0.5,
             alpha=0.8
         )

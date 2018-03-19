@@ -61,6 +61,8 @@ class Network(object):
             try:
                 shape = self.hyperparameters['shapes'][param_name]
                 model_values[param_name] = param.eval().reshape(shape)
+            except KeyError:
+                pass
             else:
                 model_values[param_name] = param.eval()
 

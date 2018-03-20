@@ -64,7 +64,7 @@ SELECT gid, hhld_num, pers_num, trip_num FROM tts11.trip;
 UPDATE crbm SET
     mode_prime =
         CASE WHEN tts11.trip.mode_prime = '9' THEN 0 -- unknown
-        WHEN tts11.trip.mode_prime = 'A' THEN 1 -- Auto Driver
+        WHEN tts11.trip.mode_prime = 'D' THEN 1 -- Auto Driver
         WHEN tts11.trip.mode_prime = 'P' THEN 2 -- Auto Passenger
         WHEN tts11.trip.mode_prime = 'B' THEN 3 -- TRANSIT (excluding GO)
         WHEN tts11.trip.mode_prime = 'W' THEN 4 -- WALK

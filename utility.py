@@ -47,7 +47,8 @@ class Setup(object):
             'data': theano.shared(np.eye(
                     df['trip_purp'].values.max() + 1,
                     dtype=theano.config.floatX)[
-                        df['trip_purp'].values].reshape(num_rows, 1, -1),
+                        df['trip_purp'].values
+                        ].reshape(num_rows, 1, -1),
                 borrow=True
             ),
             'dtype': VARIABLE_TYPE_CATEGORY,
@@ -60,7 +61,8 @@ class Setup(object):
             'data': theano.shared(np.eye(
                     df['mode_prime'].values.max() + 1,
                     dtype=theano.config.floatX)[
-                        df['mode_prime'].values].reshape(num_rows, 1, -1),
+                        df['mode_prime'].values
+                    ].reshape(num_rows, 1, -1),
                 borrow=True
             ),
             'dtype': VARIABLE_TYPE_CATEGORY,

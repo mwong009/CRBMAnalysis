@@ -781,15 +781,12 @@ class RBM(Network):
             elif dtype == VARIABLE_DTYPE_CATEGORY:
                 if v1.ndim == 3:
                     (d1, d2, d3) = v1.shape
-                    # softmax temperature value \tau (default=1)
-                    tau = 1. / v1.shape[-1]
-                    v1_mean = T.nnet.softmax(v1.reshape((d1 * d2, d3)) / tau)
+                    v1_mean = T.nnet.softmax(v1.reshape((d1 * d2, d3)))
                     # reshape back into original dimensions
                     v1_mean = v1_mean.reshape((d1, d2, d3))
                     v1_post -= T.mean(input * T.log(v1_mean))
                 else:
-                    tau = 1. / v1.shape[-1]
-                    v1_mean = T.nnet.softmax(v1 / tau)
+                    v1_mean = T.nnet.softmax(v1)
                     v1_post -= T.mean(input * T.log(v1_mean))
 
             elif dtype == VARIABLE_DTYPE_REAL:
@@ -995,8 +992,8 @@ def main(rbm, h5py_dataset):
     rbm.plot_curves()
     print('train complete')
 
-net = 'net4', {
-    'n_hidden': (2,),
+net = 'net1', {
+    'n_hidden': (1,),
     'seed': 42,
     'batch_size': 32,
     'variable_dtypes': [VARIABLE_DTYPE_BINARY,
@@ -1011,4 +1008,17 @@ net = 'net4', {
 }
 
 if __name__ == '__main__':
-    main(RBM(*net), SetupH5PY.load_dataset('data.h5'))
+    net[1]['n_hidden'] = (1,)
+    main(RBM('net1', net[1]), SetupH5PY.load_dataset('data.h5'))
+    net[1]['n_hidden'] = (5,)
+    main(RBM('net5', net[1]), SetupH5PY.load_dataset('data.h5'))
+    net[1]['n_hidden'] = (10,)
+    main(RBM('net10', net[1]), SetupH5PY.load_dataset('data.h5'))
+    net[1]['n_hidden'] = (15,)
+    main(RBM('net15', net[1]), SetupH5PY.load_dataset('data.h5'))
+    net[1]['n_hidden'] = (20,)
+    main(RBM('net20', net[1]), SetupH5PY.load_dataset('data.h5'))
+    net[1]['n_hidden'] = (25,)
+    main(RBM('net25', net[1]), SetupH5PY.load_dataset('data.h5'))
+    net[1]['n_hidden'] = (30,)
+    main(RBM('net30', net[1]), SetupH5PY.load_dataset('data.h5'))

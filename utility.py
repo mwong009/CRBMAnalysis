@@ -1,3 +1,4 @@
+import h5py
 import theano
 import numpy as np
 import pandas as pd
@@ -7,73 +8,60 @@ VARIABLE_TYPE_BINARY = 'binary'
 VARIABLE_TYPE_REAL = 'real'
 VARIABLE_TYPE_CATEGORY = 'category'
 VARIABLE_TYPE_INTEGER = 'integer'
+DTYPE_FLOATX = theano.config.floatX
 
 
-class Setup(object):
+class SetupH5PY(object):
     def __init__(self):
         pass
 
     @staticmethod
-    def load_variables(filename, x={}, y={}):
+    def load_dataset(filename='data.h5'):
+        f = h5py.File(filename, 'r')
+        return f
 
+    @staticmethod
+    def compile_dataset(filename='datatable.csv'):
         df = pd.read_csv(filename)
-        num_rows, num_cols = df.shape
+        with h5py.File('data.h5', 'w') as f:
+            f.attrs['n_rows'] = len(df)
+            f.create_dataset(
+                name='mode_prime/data',
+                data=np.eye(df.mode_prime.values.max()+1)[
+                     df.mode_prime.values].reshape(len(df), 1, -1),
+                dtype=DTYPE_FLOATX
+            )
+            f.create_dataset(
+                name='mode_prime/label',
+                data=df.mode_prime.values,
+                dtype=DTYPE_FLOATX
+            )
+            f['mode_prime'].attrs['dtype'] = 'category'
 
-        x['n_person'] = {
-            'data': theano.shared(
-                np.asarray(df['n_person'].values / 1.37535,
-                           dtype=theano.config.floatX).reshape(-1, 1, 1),
-                borrow=True
-            ),
-            'dtype': VARIABLE_TYPE_REAL,
-            'shape': (1, 1),
-            'label': None,
-            'stddev': 1.37535
-        }
+            f.create_dataset(
+                name='n_person/data',
+                data=df.n_person.values.reshape(len(df), 1, -1)/1.37535,
+                dtype=DTYPE_FLOATX
+            )
+            f['n_person'].attrs['dtype'] = 'real'
+            f['n_person'].attrs['stddev'] = 1.37535
 
-        x['driver_lic'] = {
-            'data': theano.shared(np.asarray(
-                    df['driver_lic'].values,
-                    dtype=theano.config.floatX).reshape(-1, 1, 1),
-                borrow=True
-            ),
-            'dtype': VARIABLE_TYPE_BINARY,
-            'shape': (1, 1),
-            'label': None,
-            'stddev': None
-        }
+            f.create_dataset(
+                name='driver_lic/data',
+                data=df.driver_lic.values.reshape(len(df), 1, -1),
+                dtype=DTYPE_FLOATX
+            )
+            f['driver_lic'].attrs['dtype'] = 'binary'
 
-        x['trip_purp'] = {
-            'data': theano.shared(np.eye(
-                    df['trip_purp'].values.max() + 1,
-                    dtype=theano.config.floatX)[
-                        df['trip_purp'].values
-                        ].reshape(num_rows, 1, -1),
-                borrow=True
-            ),
-            'dtype': VARIABLE_TYPE_CATEGORY,
-            'shape': (1, 4),
-            'label': None,
-            'stddev': None
-        }
-
-        y['mode_prime'] = {
-            'data': theano.shared(np.eye(
-                    df['mode_prime'].values.max() + 1,
-                    dtype=theano.config.floatX)[
-                        df['mode_prime'].values
-                    ].reshape(num_rows, 1, -1),
-                borrow=True
-            ),
-            'dtype': VARIABLE_TYPE_CATEGORY,
-            'shape': (1, 8),
-            'label': T.cast(theano.shared(np.asarray(
-                        df['mode_prime'].values,
-                        dtype=theano.config.floatX),
-                    borrow=True),
-                'int32'
-            ),
-            'stddev': None
-        }
-
-        return x, y, num_rows
+            f.create_dataset(
+                name='trip_purp/data',
+                data=np.eye(df.trip_purp.values.max()+1)[
+                     df.trip_purp.values].reshape(len(df), 1, -1),
+                dtype=DTYPE_FLOATX
+            )
+            f.create_dataset(
+                name='trip_purp/label',
+                data=df.trip_purp.values,
+                dtype=DTYPE_FLOATX
+            )
+            f['trip_purp'].attrs['dtype'] = 'category'

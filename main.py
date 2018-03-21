@@ -1,94 +1,20 @@
 import theano
-import os
-import pickle
-import sys
 import time
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import theano.tensor as T
 from collections import OrderedDict
-from itertools import chain
-from pylab import rcParams
 # internal imports
+from network import Network
 from optimizers import Optimizers
-from utility import Setup
+from utility import SetupH5PY
 
+# CONSTANTS
 VARIABLE_DTYPE_BINARY = 'binary'
 VARIABLE_DTYPE_REAL = 'real'
 VARIABLE_DTYPE_CATEGORY = 'category'
 VARIABLE_DTYPE_INTEGER = 'integer'
-
-
-class Network(object):
-    def __init__(self, name, hyper, load_params=False):
-
-        if load_params:
-            try:
-                with open(name + '.params', 'rb') as f:
-                    model_values, hyper, curves = pickle.load(f)
-            except IOError as e:
-                print("Error opening file: ", e)
-        else:
-            model_values = {}
-            curves = {'CD error': [], 'log likelihood': []}
-
-        # initialize random number generator
-        self.np_rng = np.random.RandomState(hyper['seed'])
-        self.theano_rng = T.shared_randomstreams.RandomStreams(hyper['seed'])
-
-        self.name = name
-        self.model_values = model_values
-        self.hyperparameters = hyper
-        self.monitoring_curves = curves
-        self.model_params = OrderedDict()
-        self.opt = Optimizers()
-
-    def save_params(self, iter):
-        """
-        save_params func
-            Saves model parameter values to a pickle file. To read
-            params, unpickle and reshape.
-
-        """
-
-        path = '{0:s}_{1:d}.params'.format(self.name, iter)
-        hyper = self.hyperparameters
-        curves = self.monitoring_curves
-        model_values = {}
-        # evaluating tensor shared variable to numpy array
-        for param_name, param in self.model_params.items():
-            if param_name in self.hyperparameters['shapes']:
-                shape = self.hyperparameters['shapes'][param_name]
-                model_values[param_name] = param.eval().reshape(shape)
-            else:
-                model_values[param_name] = param.eval()
-
-        to_file = model_values, hyper, curves
-        with open(path, 'wb') as f:
-            pickle.dump(to_file, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    def plot_curves(self, curves=None):
-
-        if curves is None:
-            curves = self.monitoring_curves
-        fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2)
-        rcParams['axes.xmargin'] = 0
-        rcParams['axes.ymargin'] = 0
-        rcParams['figure.figsize'] = (12.8, 4.8)
-        ax1.set(title='CD loss', xlabel='iterations')
-        ax1.plot(
-            *zip(*curves['CD error']),
-            linewidth=0.5,
-            color='C0'
-        )
-        ax2.set(title='log likelihood loss', xlabel='iterations')
-        ax2.plot(
-            *zip(*curves['log likelihood']),
-            linewidth=0.5
-        )
-        fig.set
-        fig.savefig(self.name)
+DTYPE_FLOATX = theano.config.floatX
 
 
 class RBM(Network):
@@ -146,13 +72,14 @@ class RBM(Network):
             )
         else:
             hbias = theano.shared(
-                value=np.zeros(shape=shp_hidden, dtype=theano.config.floatX),
+                value=np.zeros(shp_hidden, DTYPE_FLOATX),
                 name='hbias',
                 borrow=True
             )
 
         self.hbias.append(hbias)
         self.model_params[name] = hbias
+        self.model_params_shapes[name] = shp_hidden
 
     def add_node(self, var_dtype, name, shp_visible=None):
         """
@@ -210,12 +137,7 @@ class RBM(Network):
         else:
             size = shp_visible + shp_hidden
             W_flat = theano.shared(
-                # value=np.zeros(
-                #     shape=(np.prod(size),),
-                #     dtype=theano.config.floatX
-                # ),
-                value=np.random.normal(
-                    loc=0., scale=0.1, size=np.prod(size)),
+                value=np.random.normal(0., 0.1, np.prod(size)),
                 name='W_'+name,
                 borrow=True
             )
@@ -233,7 +155,7 @@ class RBM(Network):
             vbias_flat = theano.shared(
                 value=np.zeros(
                     shape=np.prod(shp_visible),
-                    dtype=theano.config.floatX
+                    dtype=DTYPE_FLOATX
                 ),
                 name='vbias_'+name,
                 borrow=True
@@ -250,6 +172,8 @@ class RBM(Network):
         self.vbias_flat.append(vbias_flat)
         self.model_params['W_' + name] = W_flat
         self.model_params['vbias_' + name] = vbias_flat
+        self.model_params_shapes['W_' + name] = shp_visible + shp_hidden
+        self.model_params_shapes['vbias_' + name] = shp_visible
 
     def add_connection_to(self, var_dtype, name, shp_output=None):
         """
@@ -308,12 +232,7 @@ class RBM(Network):
         else:
             size = shp_output + shp_hidden
             W_flat = theano.shared(
-                # value=np.zeros(
-                #     shape=(np.prod(size),),
-                #     dtype=theano.config.floatX
-                # ),
-                value=np.random.normal(
-                    loc=0., scale=0.1, size=np.prod(size)),
+                value=np.random.normal(0., 0.1, np.prod(size)),
                 name='W_'+name,
                 borrow=True
             )
@@ -329,10 +248,7 @@ class RBM(Network):
         else:
             size = shp_output
             cbias_flat = theano.shared(
-                value=np.zeros(
-                    shape=np.prod(size),
-                    dtype=theano.config.floatX
-                ),
+                value=np.zeros(np.prod(size), DTYPE_FLOATX),
                 name='cbias_'+name,
                 borrow=True
             )
@@ -349,6 +265,8 @@ class RBM(Network):
         self.cbias_flat.append(cbias_flat)
         self.model_params['W_' + name] = W_flat
         self.model_params['cbias_' + name] = cbias_flat
+        self.model_params_shapes['W_' + name] = shp_output + shp_hidden
+        self.model_params_shapes['cbias_' + name] = shp_output
 
         # condtional RBM connection (B weights)
         for node in self.input:
@@ -367,12 +285,7 @@ class RBM(Network):
             else:
                 size = shp_visible + shp_output
                 B_flat = theano.shared(
-                    # value=np.zeros(
-                    #     shape=(np.prod(size),),
-                    #     dtype=theano.config.floatX
-                    # ),
-                    value=np.random.normal(
-                        loc=0., scale=0.1, size=np.prod(size)),
+                    value=np.random.normal(0., 0.1, np.prod(size)),
                     name='B_'+var_name+'_'+name,
                     borrow=True
                 )
@@ -381,6 +294,9 @@ class RBM(Network):
             self.B_params.append(B)
             self.B_params_flat.append(B_flat)
             self.model_params['B_' + var_name + '_' + name] = B_flat
+            self.model_params_shapes[
+                'B_' + var_name + '_' + name
+            ] = shp_visible + shp_output
 
     def free_energy(self, input=None):
         """
@@ -422,7 +338,7 @@ class RBM(Network):
         wx_b = hbias
         utility = 0  # (rows,)
         for dtype, v, W, vbias in zip(dtypes, visibles, W_params, vbiases):
-            if dtype is VARIABLE_DTYPE_REAL:
+            if dtype == VARIABLE_DTYPE_REAL:
                 vbias = vbias.dimshuffle('x', 0, 1)
                 # utility = sum_{i} 0.5(v-vbias)^2 : (rows,)
                 utility += T.sum(T.sqr(v - vbias) / 2., axis=(1, 2))
@@ -569,7 +485,7 @@ class RBM(Network):
         h1_samples = self.theano_rng.binomial(
             size=h1_means.shape,
             p=h1_means,
-            dtype=theano.config.floatX
+            dtype=DTYPE_FLOATX
         )
 
         return h1_preactivation, h1_means, h1_samples
@@ -616,21 +532,21 @@ class RBM(Network):
         v1_samples = []
         dtypes = self.input_dtype + self.output_dtype
         for v1, dtype in zip(v1_preactivation, dtypes):
-            if dtype is VARIABLE_DTYPE_BINARY:
+            if dtype == VARIABLE_DTYPE_BINARY:
                 v1_mean = T.nnet.sigmoid(v1)
                 v1_sample = self.theano_rng.binomial(
                     size=v1.shape,
                     p=v1_mean,
-                    dtype=theano.config.floatX
+                    dtype=DTYPE_FLOATX
                 )
 
-            elif dtype is VARIABLE_DTYPE_CATEGORY:
+            elif dtype == VARIABLE_DTYPE_CATEGORY:
                 # softmax temperature value \tau (default=1)
                 tau = 1. / v1.shape[-1]
                 epsilon = 1e-10  # small value to prevent log(0)
                 uniform = self.theano_rng.uniform(
                     size=v1.shape,
-                    dtype=theano.config.floatX
+                    dtype=DTYPE_FLOATX
                 )
                 gumbel = - (- T.log(uniform + epsilon) + epsilon)
                 # reshape softmax tensors to 2D matrix
@@ -645,25 +561,25 @@ class RBM(Network):
                     v1_mean = T.nnet.softmax(logit/tau)  # (rows, items, cats)
                 v1_sample = v1_mean
 
-            elif dtype is VARIABLE_DTYPE_REAL:
+            elif dtype == VARIABLE_DTYPE_REAL:
                 v1_mean = v1
                 v1_std = T.nnet.sigmoid(v1)
                 normal_sample = self.theano_rng.normal(
                     size=v1_mean.shape,  # (rows, items, cats)
                     avg=v1_mean,
                     std=v1_std,
-                    dtype=theano.config.floatX
+                    dtype=DTYPE_FLOATX
                 )
                 v1_sample = T.nnet.relu(normal_sample)
 
-            elif dtype is VARIABLE_DTYPE_INTEGER:
+            elif dtype == VARIABLE_DTYPE_INTEGER:
                 if self.hyperparameters['noisy_rectifier'] is True:
                     v1_mean = T.nnet.sigmoid(v1)
                     normal_sample = self.theano_rng.normal(
                         size=v1.shape,
                         avg=v1,
                         std=v1_mean,
-                        dtype=theano.config.floatX
+                        dtype=DTYPE_FLOATX
                     )
                     v1_sample = T.nnet.relu(normal_sample)
                 else:
@@ -677,7 +593,7 @@ class RBM(Network):
                     binomial = self.theano_rng.binomial(
                         size=v1.shape,
                         p=v1_mean,
-                        dtype=theano.config.floatX
+                        dtype=DTYPE_FLOATX
                     )
                     # (rows, items, cats)
                     v1_sample = T.sum(binomial, axis=-1)
@@ -727,7 +643,7 @@ class RBM(Network):
         """
         logits = self.discriminative_free_energy()
         labels = self.label
-        y0_samples = []
+        y0_samples = []  # y0_samples ~ p(y|x)
         dcost = 0
         for i, (logit, label) in enumerate(zip(logits, labels)):
             # small value for tau to mimic argmax but with differentiable
@@ -736,7 +652,7 @@ class RBM(Network):
             epsilon = 1e-8  # small value to prevent log(0)
             uniform = self.theano_rng.uniform(
                 size=logit.shape,
-                dtype=theano.config.floatX
+                dtype=DTYPE_FLOATX
             )
             gumbel = - (- T.log(uniform + epsilon) + epsilon)
             # reshape softmax tensors to 2D matrix
@@ -759,7 +675,6 @@ class RBM(Network):
         # prepare visible samples from x input and y outputs
         # v0_samples = self.input + self.output
         v0_samples = self.input + y0_samples
-
         # perform positive Gibbs sampling phase
         # one step Gibbs sampling p(h|v1,v2,...) = p(h|v1)+p(h|v2)+...
         h1_pre, h1_means, h1_samples = self.sample_h_given_v(v0_samples)
@@ -767,7 +682,6 @@ class RBM(Network):
         # we only want the samples generated from the Gibbs sampling phase
         chain_start = h1_samples
         scan_out = 3 * len(v0_samples) * [None] + [None, None, chain_start]
-
         # theano scan function to loop over all Gibbs steps k
         # [v1_pre[], v1_means[], v1_samples[], h1_pre, h1_means, h1_samples]
         # outputs are given by outputs_info
@@ -784,10 +698,10 @@ class RBM(Network):
         chain_end = []
         for output in gibbs_output:
             chain_end.append(output[-1])
-
         gibbs_pre = chain_end[:len(v0_samples)]
         gibbs_means = chain_end[len(v0_samples): 2 * len(v0_samples)]
         gibbs_samples = chain_end[2 * len(v0_samples): 3 * len(v0_samples)]
+
         # calculate the model cost
         initial_cost = T.mean(self.free_energy())
         final_cost = T.mean(self.free_energy(gibbs_samples))
@@ -804,12 +718,9 @@ class RBM(Network):
             consider_constant=gibbs_samples,
             disconnected_inputs='ignore'
         )
-        updates = self.opt.sgd_updates(
-            params=params,
-            grads=grads,
-            learning_rate=lr
-        )
+
         # update Gibbs chain with update expressions from updates list[]
+        updates = self.opt.sgd_updates(params, grads, lr)
         for variable, expression in updates:
             gibbs_updates[variable] = expression
 
@@ -824,8 +735,6 @@ class RBM(Network):
     def get_discriminative_cost_updates(self, lr=1e-3):
         # prepare visible samples from input
         labels = self.label
-        dtypes = self.output_dtype
-
         logits = self.discriminative_free_energy()
         cost = []
         updates = OrderedDict()
@@ -840,72 +749,106 @@ class RBM(Network):
                 disconnected_inputs='ignore'
             )
             # a list of update expressions (variable, update expression)
-            update = self.opt.sgd_updates(
-                params=params,
-                grads=grads,
-                learning_rate=lr
-            )
+            update = self.opt.sgd_updates(params, grads, lr)
             for var, expr in update:
-                if var in updates:
-                    updates[var] = expr + updates[var]
-                else:
-                    updates[var] = expr
+                updates[var] = expr
 
-        return cost, updates
+        return [T.sum(cost)], updates
 
     def pseudo_loglikelihood(self, inputs, preactivation):
+        """
+        pseudo_loglikelihood func
+            Function to calculate the (pseudo) neg loglikelihood
+
+        Parameters
+        ----------
+        inputs : `[T.tensors]`
+            list of input tensors
+        preactivation : `[T.shared]`
+            list of precomputed "logits"
+
+        Returns
+        -------
+        pll : `scalar`
+            value of the pseudo log likelihood
+        """
         dtypes = self.input_dtype
+        tau = 0.5  # softmax temperature value \tau (default=1)
+        epsilon = 1e-8  # small value to prevent log(0.)
         v1_post = 0
         for input, v1, dtype in zip(inputs, preactivation, dtypes):
-            if dtype is VARIABLE_DTYPE_BINARY:
+            if dtype == VARIABLE_DTYPE_BINARY:
                 v1_post -= T.mean(input * T.log(T.nnet.sigmoid(v1)))
 
-            elif dtype is VARIABLE_DTYPE_CATEGORY:
-                tau = 0.5  # softmax temperature value \tau (default=1)
-                epsilon = 1e-10  # small value to prevent log(0)
+            elif dtype == VARIABLE_DTYPE_CATEGORY:
                 if v1.ndim == 3:
                     (d1, d2, d3) = v1.shape
-                    logit = v1.reshape((d1 * d2, d3))
-                    v1_mean = T.nnet.softmax(logit / tau)
+                    v1_mean = T.nnet.softmax(v1.reshape((d1 * d2, d3)) / tau)
                     # reshape back into original dimensions
                     v1_mean = v1_mean.reshape((d1, d2, d3))
                     v1_post -= T.mean(input * T.log(v1_mean))
                 else:
-                    logit = v1
-                    v1_mean = T.nnet.softmax(logit / tau)
+                    v1_mean = T.nnet.softmax(v1 / tau)
                     v1_post -= T.mean(input * T.log(v1_mean))
 
-            elif dtype is VARIABLE_DTYPE_REAL:
+            elif dtype == VARIABLE_DTYPE_REAL:
                 v1_post -= 0
 
-            elif dtype is VARIABLE_DTYPE_INTEGER:
+            elif dtype == VARIABLE_DTYPE_INTEGER:
                 raise NotImplementedError
 
             else:
                 raise NotImplementedError
-        return T.sum(v1_post)
 
-    def get_loglikelihood(self, prob, label):
+        pll = T.sum(v1_post)
+        return pll
+
+    @staticmethod
+    def get_loglikelihood(prob, label):
         """
         get_sample_loglikelihood func
             Approximation to the reconstruction error
+
+        Parameters
+        ----------
+        prob : `[T.shared]`
+            list of precomputed "logits"
+        label : `[T.shared]`
+            list of output "labels"
+
+        Returns
+        -------
+        nll : `scalar`
+            value of the negative log likelihood
         """
-        # TODO: loglikelihood loss of the discriminative (output) samples
-        # return negative loglikelihood
-        neg_ll = -T.mean(T.log(prob)[T.arange(label.shape[0]), label])
-        return neg_ll
+        nll = -T.mean(T.log(prob)[T.arange(label.shape[0]), label])
+        return nll
 
-    def get_t_statistcs(self):
+    @staticmethod
+    def get_t_statistcs(model, inputs):
+        """
+        get_t_statistcs func
+            Computes the std err, t-statistics and Hessians of the model
 
-        logits = self.discriminative_free_energy()
+        Parameters
+        ----------
+        model : `RBM(object)`
+            The RBM model
+        inputs : `[T.shared]`
+            list of input shared variables
+
+        Returns
+        -------
+        nll : `scalar`
+            value of the negative log likelihood
+        """
+        logits = model.discriminative_free_energy(inputs)
         for i, logit in enumerate(logits):
-            p_y_given_x = T.nnet.softmax(-logit)
-            cost = self.get_loglikelihood(p_y_given_x, self.label[i])
-            # calculate the gradients
-            params = [self.B_params_flat[i]] + [self.cbias_flat[i]]
+            p_y_given_x = T.nnet.softmax(logit)
+            # calculate the Hessians
             hessians = T.hessian(
-                cost=cost,
-                wrt=params,
+                cost=model.get_loglikelihood(p_y_given_x, model.label[i]),
+                wrt=[model.B_params_flat[i]]+[model.cbias_flat[i]],
                 disconnected_inputs='ignore'
             )
             cramer_rao_bound = [T.diag(-1. / h) for h in hessians]
@@ -927,7 +870,7 @@ class RBM(Network):
 
         return preds
 
-    def build_fn(self, train_set_x, train_set_y, train_set_labels):
+    def initialize(self, x, y):
         """
         build_fn func
         # TODO
@@ -935,11 +878,21 @@ class RBM(Network):
         Parameters
         ----------
         """
-        print('building theano computational graphs')
-        index = T.lscalar()
-        tensor_inputs = self.input + self.output
-        data_inputs = train_set_x + train_set_y
-        labels = self.label
+        print('building theano computational graphs...')
+        self.add_latent()
+
+        for item in x:
+            self.add_node(
+                var_dtype=item.attrs['dtype'],
+                name=item.name.strip('/'),
+                shp_visible=item['data'].shape[1:]
+            )
+        for item in y:
+            self.add_connection_to(
+                var_dtype=item.attrs['dtype'],
+                name=item.name.strip('/'),
+                shp_output=item['data'].shape[1:]
+            )
 
         lr = self.hyperparameters['learning_rate']
         k = self.hyperparameters['gibbs_steps']
@@ -947,21 +900,26 @@ class RBM(Network):
 
         gibbs_cost, gibbs_updates = self.get_generative_cost_updates(k, lr)
         cost, updates = self.get_discriminative_cost_updates(lr)
-        # for var, expression in updates.items():
-        #     gibbs_updates[var] = expression
-        # preds = self.predict()
-        # flatten list of preds in case of out variables > 1
-        # preds = list(chain.from_iterable(preds))
-        # hessians = self.get_t_statistcs()
+
+        tensor_inputs = self.input + self.output + self.label
+        tensor_outputs = gibbs_cost + cost
+        tensor_updates = gibbs_updates
+
+        input = [theano.shared(item['data'][:]) for item in x] \
+            + [theano.shared(item['data'][:]) for item in y] \
+            + [T.cast(theano.shared(item['label'][:]), 'int32') for item in y]
+
+        i = T.lscalar('index')
+        start_idx = i * batch_size
+        end_idx = (i + 1) * batch_size
 
         self.train = theano.function(
-            inputs=[index],
-            outputs=gibbs_cost+cost,
-            updates=gibbs_updates,
+            inputs=[i],
+            outputs=tensor_outputs,
+            updates=tensor_updates,
             givens={
-                tsr: data[index * batch_size: (index + 1) * batch_size]
-                for tsr, data in zip(tensor_inputs + labels,
-                                     data_inputs + train_set_labels)
+                key: val[start_idx: end_idx]
+                for key, val in zip(tensor_inputs, input)
             },
             name='train',
             allow_input_downcast=True,
@@ -969,93 +927,66 @@ class RBM(Network):
         )
 
 
-def main(rbm):
-    # load variables from csv
+def main(rbm, h5py_dataset):
+    rbm.hyperparameters['n_samples'] = h5py_dataset.attrs['n_rows']
 
-    x, y, n_samples = Setup.load_variables('datatable.csv')
+    # define the variables to use
+    x = [
+        h5py_dataset['n_person'],
+        h5py_dataset['driver_lic'],
+        h5py_dataset['trip_purp']
+    ]
 
-    rbm.hyperparameters['n_samples'] = n_samples
-    rbm.add_latent(shp_hidden=(16,))
+    y = [
+        h5py_dataset['mode_prime']
+    ]
 
-    for var in x:
-        rbm.add_node(
-            var_dtype=x[var]['dtype'],
-            name=var,
-            shp_visible=x[var]['shape']
-        )
-    for var in y:
-        rbm.add_connection_to(
-            var_dtype=y[var]['dtype'],
-            name=var,
-            shp_output=y[var]['shape']
-        )
+    # load the dataset into the model
+    rbm.initialize(x, y)
+    # close the dataset
+    h5py_dataset.close()
 
-    train_set_x = [x[var]['data'] for var in x]
-    train_set_y = [y[var]['data'] for var in y]
-    train_set_label = [y[var]['label'] for var in y]
-
-    rbm.build_fn(train_set_x, train_set_y, train_set_label)
-
-    epochs = 100
-    time_start = time.time()
+    epochs = 20
+    n_samples = rbm.hyperparameters['n_samples']
+    batch_size = rbm.hyperparameters['batch_size']
+    n_batches = n_samples // batch_size
+    t0 = time.time()
     print('training the model...')
-    n_train_batches = (rbm.hyperparameters['n_samples'] //
-                       rbm.hyperparameters['batch_size'])
+
     epoch = 0
     while epoch < epochs:
         epoch += 1
         cost = []
-        for minibatch_index in range(n_train_batches):
-            cost_items = rbm.train(minibatch_index)
+        for i in range(n_batches):
+            cost_items = rbm.train(i)
             cost.append(cost_items)
-            iter = (epoch - 1) * n_train_batches + minibatch_index
+            iter = (epoch - 1) * n_batches + i
         epoch_cost = np.asarray(cost).sum(axis=0)
-        t1 = time.time()
-        print(
-            ("epoch {0:d} gibbs cost: {1:.3f},"
-                " loglikelihood cost {2:.3f} [{3:.5f}s]").format(
-                epoch, epoch_cost[0], epoch_cost[1], t1 - time_start)
-        )
+        print(("epoch {0:d}/{1:d} gibbs cost: {2:.3f},"
+               " loglikelihood {3:.3f} [{4:.5f}s]").format(
+               epoch, epochs, epoch_cost[0], epoch_cost[1], time.time() - t0))
         # curves = {'CD error': [], 'log likelihood': []}
-        rbm.monitoring_curves['CD error'].append((iter, epoch_cost[0]))
-        rbm.monitoring_curves['log likelihood'].append((iter, epoch_cost[1]))
+        rbm.monitoring_curves['CD error'].append((epoch, epoch_cost[0]))
+        rbm.monitoring_curves['log likelihood'].append((epoch, epoch_cost[1]))
+
     rbm.save_params(iter)
     rbm.plot_curves()
     print('train complete')
 
+
 if __name__ == '__main__':
-    net = 'net1', {
-        'n_hidden': (1,),
+    net = 'net4', {
+        'n_hidden': (4,),
         'seed': 42,
         'batch_size': 32,
-        'variable_dtypes': [
-            VARIABLE_DTYPE_BINARY,
-            VARIABLE_DTYPE_REAL,
-            VARIABLE_DTYPE_CATEGORY
-        ],
+        'variable_dtypes': [VARIABLE_DTYPE_BINARY,
+                            VARIABLE_DTYPE_REAL,
+                            VARIABLE_DTYPE_CATEGORY],
         'noisy_rectifier': True,
         'learning_rate': 1e-3,
-        'gibbs_steps': 1,
+        'gibbs_steps': 4,
         'shapes': {},
         'amsgrad': True,
         'alpha': 1.0
     }
-    main(RBM(*net))
-    net = 'net2', net[1]
-    net[1]['n_hidden'] = (2,)
-    main(RBM(*net))
-    net = 'net4', net[1]
-    net[1]['n_hidden'] = (4,)
-    main(RBM(*net))
-    net = 'net8', net[1]
-    net[1]['n_hidden'] = (8,)
-    main(RBM(*net))
-    net = 'net16', net[1]
-    net[1]['n_hidden'] = (16,)
-    main(RBM(*net))
-    net = 'net32', net[1]
-    net[1]['n_hidden'] = (32,)
-    main(RBM(*net))
-    net = 'net64', net[1]
-    net[1]['n_hidden'] = (64,)
-    main(RBM(*net))
+    main(RBM(*net), SetupH5PY.load_dataset('data.h5'))

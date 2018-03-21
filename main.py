@@ -730,7 +730,7 @@ class RBM(Network):
         y0_samples = []
         dcost = 0
         for i, (logit, label) in enumerate(zip(logits, labels)):
-            # small value for tau to minic argmax but with differentiable
+            # small value for tau to mimic argmax but with differentiable
             # gradients
             tau = 1. / logit.shape[-1]
             epsilon = 1e-8  # small value to prevent log(0)

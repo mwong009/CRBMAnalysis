@@ -6,7 +6,6 @@ import theano.tensor as T
 from collections import OrderedDict
 # internal imports
 from network import Network
-from optimizers import Optimizers
 from utility import SetupH5PY
 
 # CONSTANTS
@@ -382,11 +381,11 @@ class RBM(Network):
         The free energy for the discriminative model is computed as:
 
         :math:
-        `F(y,x,h) = -(xWh + yWh + yBx + vbias*x + hbias*h + cbias*y)`\n
+        `F(y,x,h) = (xWh + yWh + yBx + vbias*x + hbias*h + cbias*y)`\n
         `    wx_b = xW_{ik} + yW_{jk} + hbias`\n
-        `  F(y,x) = -{cbias*y + yBx + sum_k[ln(1+exp(wx_b))]}`\n
-        `  F(y|x) = -{cbias + Bx + sum_k[ln(1+exp(wx_b)]}`\n
-        `  F(y|x) = -{cbias + Bx + hbias + yWh}`\n
+        `  F(y,x) = {cbias*y + yBx + sum_k[ln(1+exp(wx_b))]}`\n
+        `  F(y|x) = {cbias + Bx + sum_k[ln(1+exp(wx_b)]}`\n
+        `  F(y|x) = {cbias + Bx + hbias + yWh}`\n
 
         :params: used are W^1, W^2, B, c, h biases
 
@@ -857,18 +856,37 @@ class RBM(Network):
 
         return hessians
 
-    def predict(self):
+    @staticmethod
+    def get_prediction(model, inputs):
+        """
+        get_prediction func
+            Function to simulate (stochastic) predicted outputs
+            # TODO: not functional
 
-        # prepare visible samples from x input
-        v0_samples = self.input
-        logits = self.discriminative_free_energy()
-        preds = []
+        Parameters
+        ----------
+        inputs : `[T.tensors]`
+            list of input tensors
+        preactivation : `[T.shared]`
+            list of precomputed "logits"
+
+        Returns
+        -------
+        """
+        logits = model.discriminative_free_energy(inputs)
         for i, logit in enumerate(logits):
-            p_y_given_x = T.nnet.softmax(-logit)
-            pred = T.argmax(p_y_given_x, axis=1)
-            preds.append(pred)
-
-        return preds
+            if dtype == VARIABLE_DTYPE_BINARY:
+                p_y_given_x = T.nnet.sigmoid(logit)
+            elif dtype == VARIABLE_DTYPE_CATEGORY:
+                if logit.ndim == 3:
+                    (d1, d2, d3) = logit.shape
+                    p_y_given_x = T.nnet.softmax(logit.reshape((d1 * d2, d3)))
+                else:
+                    p_y_given_x = T.nnet.softmax(logit)
+            elif dtype == VARIABLE_DTYPE_REAL:
+                v1_post -= 0
+            elif dtype == VARIABLE_DTYPE_INTEGER:
+                raise NotImplementedError
 
     def initialize(self, x, y):
         """
@@ -905,9 +923,10 @@ class RBM(Network):
         tensor_outputs = gibbs_cost + cost
         tensor_updates = gibbs_updates
 
-        input = [theano.shared(item['data'][:]) for item in x] \
-            + [theano.shared(item['data'][:]) for item in y] \
-            + [T.cast(theano.shared(item['label'][:]), 'int32') for item in y]
+        input = [theano.shared(item['data'][:], borrow=True) for item in x] \
+            + [theano.shared(item['data'][:], borrow=True) for item in y] \
+            + [T.cast(theano.shared(item['label'][:], borrow=True), 'int32')
+               for item in y]
 
         i = T.lscalar('index')
         start_idx = i * batch_size
@@ -973,20 +992,20 @@ def main(rbm, h5py_dataset):
     rbm.plot_curves()
     print('train complete')
 
+net = 'net4', {
+    'n_hidden': (1,),
+    'seed': 42,
+    'batch_size': 32,
+    'variable_dtypes': [VARIABLE_DTYPE_BINARY,
+                        VARIABLE_DTYPE_REAL,
+                        VARIABLE_DTYPE_CATEGORY],
+    'noisy_rectifier': True,
+    'learning_rate': 1e-3,
+    'gibbs_steps': 4,
+    'shapes': {},
+    'amsgrad': True,
+    'alpha': 1.0
+}
 
 if __name__ == '__main__':
-    net = 'net4', {
-        'n_hidden': (4,),
-        'seed': 42,
-        'batch_size': 32,
-        'variable_dtypes': [VARIABLE_DTYPE_BINARY,
-                            VARIABLE_DTYPE_REAL,
-                            VARIABLE_DTYPE_CATEGORY],
-        'noisy_rectifier': True,
-        'learning_rate': 1e-3,
-        'gibbs_steps': 4,
-        'shapes': {},
-        'amsgrad': True,
-        'alpha': 1.0
-    }
     main(RBM(*net), SetupH5PY.load_dataset('data.h5'))

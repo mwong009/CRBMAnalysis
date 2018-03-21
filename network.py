@@ -4,6 +4,7 @@ import numpy as np
 import theano.tensor as T
 import matplotlib.pyplot as plt
 from collections import OrderedDict
+from optimizers import Optimizers
 from pylab import rcParams
 
 

@@ -968,7 +968,7 @@ def main(rbm, h5py_dataset):
     # close the dataset
     h5py_dataset.close()
 
-    epochs = 20
+    epochs = 50
     n_samples = rbm.hyperparameters['n_samples']
     batch_size = rbm.hyperparameters['batch_size']
     n_batches = n_samples // batch_size

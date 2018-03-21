@@ -772,7 +772,6 @@ class RBM(Network):
             value of the pseudo log likelihood
         """
         dtypes = self.input_dtype
-        tau = 0.5  # softmax temperature value \tau (default=1)
         epsilon = 1e-8  # small value to prevent log(0.)
         v1_post = 0
         for input, v1, dtype in zip(inputs, preactivation, dtypes):
@@ -782,11 +781,14 @@ class RBM(Network):
             elif dtype == VARIABLE_DTYPE_CATEGORY:
                 if v1.ndim == 3:
                     (d1, d2, d3) = v1.shape
+                    # softmax temperature value \tau (default=1)
+                    tau = 1. / v1.shape[-1]
                     v1_mean = T.nnet.softmax(v1.reshape((d1 * d2, d3)) / tau)
                     # reshape back into original dimensions
                     v1_mean = v1_mean.reshape((d1, d2, d3))
                     v1_post -= T.mean(input * T.log(v1_mean))
                 else:
+                    tau = 1. / v1.shape[-1]
                     v1_mean = T.nnet.softmax(v1 / tau)
                     v1_post -= T.mean(input * T.log(v1_mean))
 
@@ -915,6 +917,7 @@ class RBM(Network):
         lr = self.hyperparameters['learning_rate']
         k = self.hyperparameters['gibbs_steps']
         batch_size = self.hyperparameters['batch_size']
+        n_samples = self.hyperparameters['n_samples']
 
         gibbs_cost, gibbs_updates = self.get_generative_cost_updates(k, lr)
         cost, updates = self.get_discriminative_cost_updates(lr)
@@ -993,7 +996,7 @@ def main(rbm, h5py_dataset):
     print('train complete')
 
 net = 'net4', {
-    'n_hidden': (1,),
+    'n_hidden': (2,),
     'seed': 42,
     'batch_size': 32,
     'variable_dtypes': [VARIABLE_DTYPE_BINARY,
@@ -1001,7 +1004,7 @@ net = 'net4', {
                         VARIABLE_DTYPE_CATEGORY],
     'noisy_rectifier': True,
     'learning_rate': 1e-3,
-    'gibbs_steps': 4,
+    'gibbs_steps': 1,
     'shapes': {},
     'amsgrad': True,
     'alpha': 1.0

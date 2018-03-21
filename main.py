@@ -822,9 +822,7 @@ class RBM(Network):
         return [monitoring_cost], gibbs_updates
 
     def get_discriminative_cost_updates(self, lr=1e-3):
-
-        # prepare visible samples from x input
-        v0_samples = self.input
+        # prepare visible samples from input
         labels = self.label
         dtypes = self.output_dtype
 
